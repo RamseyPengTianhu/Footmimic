@@ -55,3 +55,6 @@ motion-data/
 *_backup.*
 *_old.*
 *copy*
+logs/
+motions/
+*.pt
