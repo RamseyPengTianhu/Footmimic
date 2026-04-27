@@ -179,6 +179,8 @@ class G1AnchorStateMachineKickEnvCfg(G1AnchorKickEnvCfg):
             self.commands.motion.strike_motion_files = []
         if not hasattr(self.commands.motion, "strike_trigger_distance"):
             self.commands.motion.strike_trigger_distance = 0.8
+        if not hasattr(self.commands.motion, "kick_foot_body_name"):
+            self.commands.motion.kick_foot_body_name = "right_ankle_roll_link"
 
 
 # ===========================================================================
