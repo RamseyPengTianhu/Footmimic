@@ -148,6 +148,44 @@ python scripts/rsl_rl/play_multi.py --task Tracking-Flat-G1-SoccerDestination-RN
 
 > ⚠️ **注意**：checkpoint 必须与环境匹配。MLP 训练的权重不能用 RNN 环境加载，反之亦然。
 
+
+---
+
+## Sprint 2 & 3: Anchor改动与状态机实验复盘
+
+### 1. 当前最佳版本：连续动作极坐标观测 (Sprint 2)
+在 **不切割运动序列**，保持原始 112 帧完整跑+踢（无缝播放）的前提下，我们做出了三点最关键的介入：
+- **极坐标球位观测 (`observations_anchor.py`)**: 将踢球目标位置由原本的绝对坐标 XYZ 替换成了机器人的**自我中心极坐标**。
+- **降权步态速度约束**: 因为 HMR 视觉动捕提取的速度包含极大噪声，我们大幅降低了速度追踪（`velocity tracking`）的权重。
+- **剥离发力脚 (Ankle Masking)**: 从关节位置追踪的 Penalty 里去掉了右脚踝。让右腿在最后能根据球位自由发力挥扫，不受固定运动框架的拘束。
+**这个连续跑踢的 Anchor Baseline 现阶段取得了最佳的视觉仿真连贯度，并成为了我们当前推进的主线 （`Anchor-Kick-G1-Soccer-RNN-v0` Task）。**
+
+### 2. XGen "时空锚定" 状态机实验 (Sprint 3)
+为了能够解耦奔跑跑动和最终一击的耦合度并允许球位高度自由，我们参考 XGen 将数据切分为了接触（`strike`）和非接触（`approach`）。
+我们实现了 `commands_anchor.py` 并在 `sm_v6_xgen` 次方验证：
+- 设计状态机，在靠近球 `$d \le 0.8$m` 时强制覆盖轨迹并应用坐标偏移（Correction XY）向真实物理球位强制“锚定坐标系”。
+- **实验结果**: `kick_success_rate` 数值惊人地从 `0.45` 暴涨至 `0.70`。但在仿真渲染中，强制切换 motion index 与极强对齐修正带来的“硬切跳跃感”让机器人步态瞬间产生撕裂般的扭曲断层。
+- **决定**: SM 的逻辑天花板极高，但平滑过渡机制还未成熟。现阶段代码已经作为 Sprint 3 遗产留在了我们的文件树中，主线目前**回退到 Sprint 2 连续不切断** 的基础。
+
+#### 核心常用指令：继续训练目前最佳的连续动作版本
+
+```bash
+# 继续训练目前最佳的连续动作极坐标版本 (Task: Anchor-Kick-G1-Soccer-RNN-v0)
+# (基于 run: 2026-04-10_09-47-29_anchor_resume)
+CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/train_multi.py \
+    --task Anchor-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "2026-04-10_09-47-29_anchor_resume" \
+    --resume True --num_envs 2048 --device cuda:0 --headless
+
+# 播放上面训练版本的动作推演
+CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/play_multi.py \
+    --task Anchor-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "2026-04-10_09-47-29_anchor_resume" \
+    --num_envs 1 --device cuda:0
+```
+
 ---
 
 ## 盘带任务（Dribbling）
