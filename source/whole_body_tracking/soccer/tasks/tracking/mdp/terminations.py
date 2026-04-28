@@ -150,3 +150,38 @@ def contact_phase_violation(
 
     # Terminate: outside kick window AND robot-ball contact detected.
     return outside_window & has_contact
+
+
+def interaction_termination(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    ball_speed_threshold: float = 0.3,
+    grace_frames: int = 10,
+) -> torch.Tensor:
+    """Terminate if the robot fails to kick the ball after the kick window.
+
+    After kick_end_frame + grace_frames, if the ball's XY speed is still
+    below `ball_speed_threshold`, the episode is terminated.  This prevents
+    the robot from 'freeloading' by just tracking motion without kicking.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    kick_end = command.kick_end_frame  # (num_envs,), -1 = not annotated
+    t = command.time_steps
+
+    has_annotation = kick_end >= 0
+    past_window = has_annotation & (t > (kick_end + grace_frames))
+
+    if not torch.any(past_window):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    soccer_ball = env.scene["soccer_ball"]
+    ball_speed_xy = torch.norm(soccer_ball.data.root_lin_vel_w[:, :2], dim=-1)
+
+    # Check if kick tracker recorded a successful contact.
+    from soccer.tasks.tracking.mdp.rewards import _get_kick_tracker
+    tracker = _get_kick_tracker(command)
+    contact_awarded = tracker.get_contact_awarded()
+
+    # Terminate if past window AND (no contact recorded OR ball barely moved).
+    failed = past_window & (~contact_awarded | (ball_speed_xy < ball_speed_threshold))
+    return failed

@@ -4,6 +4,7 @@
 
 import argparse
 import sys
+import datetime
 
 from isaaclab.app import AppLauncher
 
@@ -13,7 +14,9 @@ import cli_args  # isort: skip
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
-parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
+parser.add_argument("--video_length", type=int, default=600, help="Length of the recorded video (in steps).")
+parser.add_argument("--dual_view", action="store_true", default=False, help="Record split-screen video (front + back view).")
+parser.add_argument("--path_tracing", action="store_true", default=False, help="Use Path Tracing renderer for higher quality.")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
@@ -30,8 +33,11 @@ cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 # always enable cameras to record video
-if args_cli.video:
+if args_cli.video or args_cli.dual_view:
     args_cli.enable_cameras = True
+    # Allow headless video recording over SSH.
+    if not hasattr(args_cli, 'headless'):
+        args_cli.headless = True
 
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
@@ -92,6 +98,44 @@ def get_motion_files(motion_path: str) -> list[str]:
     else:
         raise ValueError(f"Invalid path: {motion_path}. Must be a file or directory.")
 
+
+def _get_cg_overlay(env, timestep: int) -> str:
+    """Build a text overlay showing Contact Graph phase, timestep, and ball speed."""
+    try:
+        base_env = env.unwrapped if hasattr(env, 'unwrapped') else env
+        cmd = base_env.command_manager.get_term("motion_command")
+
+        t = int(cmd.time_steps[0].item())
+        kf = int(cmd.kick_frame[0].item()) if hasattr(cmd, 'kick_frame') else -1
+        kef = int(cmd.kick_end_frame[0].item()) if hasattr(cmd, 'kick_end_frame') else -1
+
+        # Determine CG phase (matches _get_cg_phase in rewards.py).
+        margin = 5
+        if kf < 0:
+            phase = "CG=N/A (no annotation)"
+        elif t < kf - margin:
+            phase = "CG=0 (Approach)"
+        else:
+            phase = "CG=1 (Kick)"
+
+        # Ball speed.
+        ball_speed = 0.0
+        try:
+            ball = base_env.scene["ball"]
+            ball_vel = ball.data.root_lin_vel_w[0].cpu().numpy()
+            ball_speed = float(np.linalg.norm(ball_vel[:2]))
+        except Exception:
+            pass
+
+        lines = [
+            f"Step: {timestep}  |  Frame: {t}/{kf}",
+            f"Phase: {phase}",
+            f"Ball Speed: {ball_speed:.2f} m/s",
+        ]
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Step: {timestep}\nCG: error ({e})"
+
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Play with RSL-RL agent."""
@@ -100,6 +144,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     env_cfg.viewer.origin_type = None
     env_cfg.viewer.asset_name = None
+
+    # For video recording: set a wide-angle camera that follows the robot.
+    if args_cli.video:
+        env_cfg.viewer.eye = (5.0, 5.0, 3.0)       # 5m back + 5m side + 3m up
+        env_cfg.viewer.lookat = (0.0, 0.0, 0.5)     # look at robot's waist height
+        env_cfg.viewer.origin_type = "asset_root"    # camera follows the robot
+        env_cfg.viewer.asset_name = "robot"           # track the robot asset
+        env_cfg.viewer.env_index = 0
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
@@ -179,13 +231,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # wrap for video recording
     if args_cli.video:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        video_dir = os.path.join(log_dir, "videos", f"play_{timestamp}")
         video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "play"),
+            "video_folder": video_dir,
             "step_trigger": lambda step: step == 0,
             "video_length": args_cli.video_length,
             "disable_logger": True,
         }
-        print("[INFO] Recording videos during training.")
+        print(f"[INFO] Recording video ({args_cli.video_length} steps) to: {video_dir}")
+        print("[INFO] Use --video_length N to control clip duration.")
         print_dict(video_kwargs, nesting=4)
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
@@ -255,6 +310,29 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     else:
         print("[INFO]: Skipping policy export (set --export_motion_name to enable export).")
     
+    # --- Dual-view recorder setup (optional) ---
+    dual_recorder = None
+    if args_cli.dual_view:
+        from dual_view_recorder import DualViewRecorder
+
+        video_dir = os.path.join(log_dir, "videos",
+                                 f"dual_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        dual_recorder = DualViewRecorder(
+            env=env.unwrapped if hasattr(env, 'unwrapped') else env,
+            output_dir=video_dir,
+            resolution=(960, 540),
+            front_offset=(4.0, 3.0, 2.5),
+            back_offset=(-4.0, -3.0, 2.5),
+            lookat_offset=0.5,
+            fps=30,
+            path_tracing=args_cli.path_tracing,
+        )
+        dual_recorder.setup()
+        # Need some warmup frames for the renderer.
+        for _ in range(5):
+            env.unwrapped.sim.render()
+        print(f"[INFO] Dual-view recording: {args_cli.video_length} steps → {video_dir}")
+
     # reset environment
     # breakpoint()
     obs, _ = env.get_observations()
@@ -267,11 +345,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             actions = policy(obs)
             # env stepping
             obs, _, _, _ = env.step(actions)
-        if args_cli.video:
+
+        # Capture frame for dual-view recording with CG overlay.
+        if dual_recorder is not None:
+            overlay = _get_cg_overlay(env, timestep)
+            dual_recorder.capture(overlay_text=overlay)
+
+        if args_cli.video or args_cli.dual_view:
             timestep += 1
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
+
+    # Save dual-view video.
+    if dual_recorder is not None:
+        dual_recorder.save()
 
     # close the simulator
     env.close()

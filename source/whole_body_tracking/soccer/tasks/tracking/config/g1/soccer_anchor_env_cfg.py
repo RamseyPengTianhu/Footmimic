@@ -150,6 +150,110 @@ class G1AnchorKickEnvCfg(G1FlatKickEnvCfg):
 
 
 # ---------------------------------------------------------------------------
+# Stage 2 CG — Soft Contact Graph Kick (Sprint 4)
+# ---------------------------------------------------------------------------
+
+@configclass
+class G1AnchorCGKickEnvCfg(G1FlatKickEnvCfg):
+    """Stage 2 with Soft Contact Graph: time-gated rewards and dynamic masking.
+
+    Key differences from G1AnchorKickEnvCfg (Sprint 2):
+      - Ankle masking is DYNAMIC: right ankle tracked during CG=0, freed during CG=1
+      - target_point_contact is TIME-GATED: only rewards during CG=1
+      - early_collision_penalty: penalises ball contact during CG=0
+      - interaction_termination: kills episode if ball not kicked after kick window
+      - Keeps Sprint 2's egocentric polar observations and velocity downweight
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # --- Actor observation: egocentric ball (same as Sprint 2) ---
+        self.observations.policy.target_point_pos = ObsTerm(
+            func=obs_anchor.anchor_ball_polar,
+            params={"command_name": "motion"},
+        )
+
+        # --- Dynamic ankle masking body pos (replaces static masking) ---
+        # CG=0: ALL bodies tracked (right ankle included for stable gait)
+        # CG=1: right ankle EXCLUDED (free to swing at ball)
+        self.rewards.motion_body_pos = RewTerm(
+            func=mdp.dynamic_ankle_masking_body_pos,
+            weight=1.0,
+            params={
+                "command_name": "motion",
+                "std": 0.3,
+                "body_names": [
+                    "pelvis",
+                    "left_hip_roll_link",
+                    "left_knee_link",
+                    "left_ankle_roll_link",
+                    "right_hip_roll_link",
+                    "right_knee_link",
+                    "right_ankle_roll_link",  # included — dynamically masked in CG=1
+                    "torso_link",
+                    "left_shoulder_roll_link",
+                    "left_elbow_link",
+                    "left_wrist_yaw_link",
+                    "right_shoulder_roll_link",
+                    "right_elbow_link",
+                    "right_wrist_yaw_link",
+                ],
+                "kick_foot_name": "right_ankle_roll_link",
+                "cg_margin": 5,
+            },
+        )
+
+        # --- Time-gated kick reward (replace original target_point_contact) ---
+        self.rewards.target_point_contact = RewTerm(
+            func=mdp.time_gated_contact,
+            weight=50.0,
+            params={
+                "command_name": "motion",
+                "ball_sensor_name": "soccer_ball_contact",
+                "horizontal_force_threshold": 10,
+                "foot_cfg": self.foot_cfg,
+                "cg_margin": 5,
+            },
+        )
+
+        # --- Early collision penalty (CG=0: don't bump the ball while running) ---
+        self.rewards.early_collision_penalty = RewTerm(
+            func=mdp.early_collision_penalty,
+            weight=-15.0,
+            params={
+                "command_name": "motion",
+                "ball_sensor_name": "soccer_ball_contact",
+                "horizontal_force_threshold": 5.0,
+                "cg_margin": 5,
+            },
+        )
+
+        # --- Push ball placement farther forward to reduce CG=0 collisions ---
+        self.commands.motion.curve_offset_range = {
+            "radius": (0.0, 0.4),   # was (-0.25, 0.25): now 0~0.4m forward only
+            "arc_angle": math.pi / 9,
+            "height": 0.11,
+        }
+
+        # --- Interaction termination (must kick or die) ---
+        self.terminations.interaction_fail = DoneTerm(
+            func=mdp.interaction_termination,
+            params={
+                "command_name": "motion",
+                "ball_speed_threshold": 0.3,
+                "grace_frames": 10,
+            },
+        )
+
+        # --- Down-weight velocity tracking (same as Sprint 2) ---
+        if hasattr(self.rewards, "motion_body_lin_vel"):
+            self.rewards.motion_body_lin_vel.weight = 0.3
+        if hasattr(self.rewards, "motion_body_ang_vel"):
+            self.rewards.motion_body_ang_vel.weight = 0.3
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 SM — State Machine Kick (APPROACH/STRIKE distance trigger)
 # ---------------------------------------------------------------------------
 

@@ -519,3 +519,159 @@ def pelvis_orientation(env: ManagerBasedRLEnv, command_name: str = "motion") -> 
     pelvis_proj_gravity = quat_apply_inverse(command.robot_pelvis_quat_w, gravity_vec_w)
     # print("pelvis_proj_gravity:", gravity_vec_w, pelvis_proj_gravity)
     return torch.sum(torch.square(pelvis_proj_gravity[:, :2]), dim=1)
+
+
+# ===========================================================================
+# Sprint 4: Soft Contact Graph (CG) Rewards
+# ===========================================================================
+# These rewards implement time-gated logic based on each motion's kick_frame.
+#   CG=0: time_steps < kick_frame  (approach / running phase)
+#   CG=1: time_steps >= kick_frame (kick window)
+# ===========================================================================
+
+def _get_cg_phase(command: MotionCommand, margin: int = 5) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return per-env boolean masks for CG=0 (approach) and CG=1 (kick window).
+
+    Args:
+        command: The MotionCommand instance.
+        margin: Number of frames before kick_frame to start CG=1 transition.
+    Returns:
+        (is_cg0, is_cg1) boolean tensors of shape (num_envs,).
+    """
+    kf = command.kick_frame  # (num_envs,) — per-env kick start frame
+    t = command.time_steps   # (num_envs,) — current frame
+    has_annotation = kf >= 0  # motion has kick_frame label
+
+    # CG=1 starts `margin` frames before kick_frame to allow preparation.
+    is_cg1 = has_annotation & (t >= (kf - margin))
+    is_cg0 = has_annotation & ~is_cg1
+
+    # If no annotation, default to CG=1 (don't penalise).
+    return is_cg0, is_cg1
+
+
+def early_collision_penalty(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    ball_sensor_name: str = "soccer_ball_contact",
+    horizontal_force_threshold: float = 5.0,
+    cg_margin: int = 5,
+) -> torch.Tensor:
+    """Penalise ball contact during CG=0 (approach phase).
+
+    During CG=0 (before kick_frame - margin), any contact with the ball
+    yields a per-frame -1.0 penalty.  This teaches the robot to avoid
+    accidentally bumping the ball while running.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    is_cg0, _ = _get_cg_phase(command, margin=cg_margin)
+
+    # Detect contact from ball sensor.
+    ball_contact: ContactSensor = env.scene[ball_sensor_name]
+    # net_forces_w_history shape can be (N, num_bodies, H, 3) or (N, H, 3).
+    net_forces = ball_contact.data.net_forces_w_history
+    if net_forces.dim() == 4:
+        # Sum over bodies, take latest history frame.
+        force_vec = net_forces[:, :, 0, :2].sum(dim=1)  # (N, 2)
+    else:
+        force_vec = net_forces[:, 0, :2]  # (N, 2)
+    force_mag = torch.norm(force_vec, dim=-1)  # (N,)
+    has_contact = force_mag > horizontal_force_threshold
+
+    # Penalty only during CG=0.
+    penalty = torch.zeros(env.num_envs, device=env.device)
+    penalty[is_cg0 & has_contact] = 1.0  # weight is negative in config
+    return penalty
+
+
+def time_gated_contact(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    ball_sensor_name: str = "soccer_ball_contact",
+    horizontal_force_threshold: float = 10.0,
+    foot_cfg: SceneEntityCfg | None = None,
+    cg_margin: int = 5,
+) -> torch.Tensor:
+    """Same as target_point_contact but ONLY rewards during CG=1 window.
+
+    Contact during CG=0 is completely ignored (no reward).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    _, is_cg1 = _get_cg_phase(command, margin=cg_margin)
+    tracker = _get_kick_tracker(command)
+    event = tracker.detect(command, ball_sensor_name, horizontal_force_threshold)
+
+    reward = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+    if not torch.any(event.new_contact):
+        return reward
+
+    reward_scale = torch.zeros_like(reward)
+    correct_mask = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    if foot_cfg is not None:
+        foot_info = tracker.resolve_contact_foot(command, foot_cfg, event.new_contact)
+        if foot_info.env_ids.numel() > 0:
+            valid_expectation = foot_info.expected >= 0
+            correct = (foot_info.sides == foot_info.expected) & valid_expectation
+            reward_scale[foot_info.env_ids] = correct.to(reward_scale.dtype)
+            correct_mask[foot_info.env_ids] = correct
+
+    tracker.record_expected_success(event.new_contact, correct_mask)
+
+    # Gate: zero out reward for envs still in CG=0.
+    raw_reward = event.new_contact.to(reward.dtype) * reward_scale
+    raw_reward[~is_cg1] = 0.0
+    return raw_reward
+
+
+def dynamic_ankle_masking_body_pos(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    std: float = 0.3,
+    body_names: list[str] | None = None,
+    kick_foot_name: str = "right_ankle_roll_link",
+    kick_foot_cg1_scale: float = 0.3,
+    cg_margin: int = 5,
+) -> torch.Tensor:
+    """Body position tracking with dynamic ankle masking based on CG phase.
+
+    During CG=0: ALL bodies tracked (including kick foot) — stable gait.
+    During CG=1: kick foot error scaled by `kick_foot_cg1_scale` — soft guidance
+                 for proper kick form while allowing deviation to reach the ball.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    _, is_cg1 = _get_cg_phase(command, margin=cg_margin)
+
+    # Get all body indices for tracking.
+    all_indices = _get_body_indexes(command, body_names)
+
+    # Find kick foot index within the body_names list.
+    kick_foot_local_idx = None
+    if body_names is not None and kick_foot_name in body_names:
+        kick_foot_local_idx = body_names.index(kick_foot_name)
+    elif body_names is None:
+        # body_names is all bodies, find kick foot in cfg.body_names
+        if kick_foot_name in command.cfg.body_names:
+            kick_foot_local_idx = list(command.cfg.body_names).index(kick_foot_name)
+
+    # Compute full tracking error for all bodies.
+    body_pos_relative_w = command.body_pos_relative_w[:, all_indices]
+    robot_body_pos_w = command.robot.data.body_pos_w[:, :, :]
+    body_cfg_indices = all_indices
+    robot_body_selected = robot_body_pos_w[:, body_cfg_indices]
+
+    diff = robot_body_selected - body_pos_relative_w
+    per_body_error = torch.sum(diff * diff, dim=-1)  # (num_envs, num_bodies)
+
+    # During CG=1, scale down (not zero out) kick foot error — soft guidance.
+    if kick_foot_local_idx is not None:
+        if kick_foot_local_idx < len(all_indices):
+            cg1_expanded = is_cg1.unsqueeze(-1)  # (num_envs, 1)
+            mask = torch.zeros_like(per_body_error, dtype=torch.bool)
+            mask[:, kick_foot_local_idx] = True
+            # Scale kick foot error by kick_foot_cg1_scale during CG=1.
+            scaled = per_body_error * kick_foot_cg1_scale
+            per_body_error = torch.where(mask & cg1_expanded, scaled, per_body_error)
+
+    mean_error = per_body_error.mean(dim=-1)
+    return torch.exp(-mean_error / (std ** 2))

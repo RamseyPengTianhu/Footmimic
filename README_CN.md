@@ -188,6 +188,98 @@ CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/play_multi.py \
 
 ---
 
+## Sprint 4: 软性接触图 (Soft Contact Graph)
+
+### 核心思想
+在不硬切 motion 的前提下，利用 npz 中已标注的 `kick_frame` / `kick_end_frame` 将每个 episode 分为两个时间阶段：
+
+| 阶段 | 帧范围 | 含义 |
+|------|--------|------|
+| **CG=0** (Approach) | `t < kick_frame - 5` | 禁止碰球，右脚踝正常追踪 |
+| **CG=1** (Kick) | `t ≥ kick_frame - 5` | 鼓励踢球，右脚踝追踪降权至 `0.3×`（soft guidance） |
+
+> ⚠️ CG 只有 0 和 1 两个阶段。`kick_end_frame` 仅用于 `interaction_termination`（防摆烂），不构成独立阶段。
+
+### 新增 Reward / Termination
+
+| 组件 | 文件 | 效果 |
+|------|------|------|
+| `early_collision_penalty` | `rewards.py` | CG=0 碰球 → 持续惩罚（weight: -10.0） |
+| `time_gated_contact` | `rewards.py` | 替代原 `target_point_contact`，CG=0 碰球不给奖 |
+| `dynamic_ankle_masking_body_pos` | `rewards.py` | CG=0 全身追踪；CG=1 踢球脚误差 ×0.3（保留踢球姿态） |
+| `interaction_termination` | `terminations.py` | `kick_end_frame` 后球速≈0 → 终止（防摆烂） |
+
+### 设计决策
+
+- **Soft vs. Hard CG**：采用 reward shaping（soft）而非状态机硬切换，保持连续动作的稳定性
+- **Soft Guidance（×0.3）**：CG=1 阶段不完全放开脚踝追踪，而是降权到 0.3×，防止 agent 用脚底拉球而非脚背抽球
+- **球位前移**：`radius` 范围调整为 `0.0~0.4`，减少 approach 阶段的意外碰撞
+
+### 常用指令
+
+```bash
+# Sprint 4 训练（从 Stage 1 checkpoint 开始）
+CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/train_multi.py \
+    --task Anchor-CG-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "2026-04-10_02-11-14" --checkpoint model_6999.pt \
+    --run_name "cg_v3_softmask" --resume True \
+    --num_envs 2048 --device cuda:0 --headless
+
+# 播放推演（带显示器）
+CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/play_multi.py \
+    --task Anchor-CG-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "2026-04-28_12-15-12_cg_v3_softmask" \
+    --checkpoint model_12000.pt \
+    --num_envs 1 --device cuda:0
+```
+
+---
+
+## Headless 视频录制（SSH 远程适用）
+
+### 单视角录制
+
+在没有显示器的 SSH 环境下录制 demo 视频：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/play_multi.py \
+    --task Anchor-CG-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "<your_run_name>" \
+    --checkpoint model_XXXX.pt \
+    --num_envs 1 --device cuda:0 \
+    --headless --video --video_length 600
+```
+
+- `--video`: 自动启用 offscreen 渲染摄像头
+- `--video_length N`: 录制 N 步（默认 600）
+- 视频保存在 `logs/.../videos/play_<timestamp>/`
+
+### 双视角分屏录制（带 CG HUD）
+
+录制正面+背面分屏视频，画面上叠加 Contact Graph 阶段、帧计数和球速：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/play_multi.py \
+    --task Anchor-CG-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "2026-04-28_12-15-12_cg_v3_softmask" \
+    --checkpoint model_12000.pt \
+    --num_envs 1 --device cuda:0 \
+    --headless --dual_view --video_length 600
+```
+
+- `--dual_view`: 前后双摄像头分屏，自动跟随机器人
+- `--path_tracing`: （可选）切换到 Path Tracing 渲染器，画质更好但速度慢
+- 视频 HUD 显示：`Step / Frame`, `CG Phase`, `Ball Speed (m/s)`
+- 输出：`logs/.../videos/dual_<timestamp>/dual_view_*.mp4`
+
+> ⚠️ 需系统安装 `ffmpeg`。双视角分辨率为 1920×540（左右各 960×540）。
+
+---
+
 ## 盘带任务（Dribbling）
 
 ### 任务定义
