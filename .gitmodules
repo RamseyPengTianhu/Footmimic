@@ -1,0 +1,4 @@
+[submodule "deps/IsaacLab"]
+	path = deps/IsaacLab
+	url = /home/tianhup/Desktop/IsaacLab_Soccer
+	branch = soccer-custom

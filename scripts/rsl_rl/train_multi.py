@@ -192,6 +192,26 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg)
     dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
 
+    # ── Save git state for reproducibility ──────────────────────────────
+    git_dir = os.path.join(log_dir, "git")
+    os.makedirs(git_dir, exist_ok=True)
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _repos = {
+        "HumanoidSoccer": _project_root,
+    }
+    # IsaacLab: prefer submodule (deps/IsaacLab), fallback to standalone copy
+    _isaaclab_sub = os.path.join(_project_root, "deps", "IsaacLab")
+    _isaaclab_ext = os.path.expanduser("~/Desktop/IsaacLab_Soccer")
+    if os.path.isdir(os.path.join(_isaaclab_sub, ".git")):
+        _repos["IsaacLab"] = _isaaclab_sub
+    elif os.path.isdir(os.path.join(_isaaclab_ext, ".git")):
+        _repos["IsaacLab"] = _isaaclab_ext
+    for name, repo_path in _repos.items():
+        if os.path.isdir(os.path.join(repo_path, ".git")):
+            os.system(f"git -C {repo_path} diff > {os.path.join(git_dir, name + '.diff')}")
+            os.system(f"git -C {repo_path} log --oneline -1 > {os.path.join(git_dir, name + '.HEAD')}")
+            print(f"[INFO] Saved git snapshot: {name}")
+
     # run training
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
 
