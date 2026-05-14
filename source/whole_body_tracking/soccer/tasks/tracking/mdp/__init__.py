@@ -12,4 +12,5 @@ from .rewards_dribbling import *  # noqa: F401, F403
 from .terminations import *  # noqa: F401, F403
 
 from .commands_multi_motion_soccer import *  # noqa: F401, F403
+from .commands_dribble_cg import DribbleCGMotionCommand, DribbleCGMotionCommandCfg  # noqa: F401
 # from .commands import *

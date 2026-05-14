@@ -44,6 +44,51 @@ def action_rate_l2_clip(env: ManagerBasedRLEnv) -> torch.Tensor:
     return reward.clamp(max=100.0)
 
 
+def forward_velocity_reward(
+    env: ManagerBasedRLEnv,
+    target_speed: float = 0.8,
+    std: float = 0.4,
+    command_name: str = "motion",
+) -> torch.Tensor:
+    """Reward when pelvis forward speed (local +x) matches ``target_speed``.
+
+    Independent of the motion's world trajectory: the only objective is "walk forward
+    at roughly ``target_speed`` m/s in the direction the robot is currently facing".
+    Use as a Stage-1 locomotion objective when the motion's global anchor tracking is
+    turned off (e.g. for slalom-around-cones demos that we do **not** want to copy).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    robot = command.robot
+    pelvis_index = robot.body_names.index("pelvis")
+
+    pelvis_quat_w = robot.data.body_quat_w[:, pelvis_index]
+    pelvis_lin_vel_w = robot.data.body_lin_vel_w[:, pelvis_index]
+    pelvis_lin_vel_local = quat_apply(quat_inv(pelvis_quat_w), pelvis_lin_vel_w)
+    forward_speed = pelvis_lin_vel_local[:, 0]
+
+    error = (forward_speed - target_speed) ** 2
+    return torch.exp(-error / max(std, 1e-6) ** 2)
+
+
+def lateral_velocity_penalty(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+) -> torch.Tensor:
+    """Squared pelvis lateral speed (local +y) — for penalising sideways drift.
+
+    Apply with a negative weight. Complements :func:`forward_velocity_reward` to push
+    the policy to walk straight forward rather than crab-walk sideways.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    robot = command.robot
+    pelvis_index = robot.body_names.index("pelvis")
+
+    pelvis_quat_w = robot.data.body_quat_w[:, pelvis_index]
+    pelvis_lin_vel_w = robot.data.body_lin_vel_w[:, pelvis_index]
+    pelvis_lin_vel_local = quat_apply(quat_inv(pelvis_quat_w), pelvis_lin_vel_w)
+    return pelvis_lin_vel_local[:, 1] ** 2
+
+
 def waist_action_rate_l2_clip(env: ManagerBasedRLEnv, waist_cfg: SceneEntityCfg | None = None) -> torch.Tensor:
     """Penalize the rate of change of the actions using L2 squared kernel."""
     if waist_cfg is None:

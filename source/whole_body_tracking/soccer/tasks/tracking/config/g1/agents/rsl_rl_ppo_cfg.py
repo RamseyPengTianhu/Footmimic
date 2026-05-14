@@ -54,6 +54,20 @@ class G1FlatRecurrentPPORunnerCfg(G1FlatPPORunnerCfg):
         )
 
 
+@configclass
+class G1DribblingPPORunnerCfg(G1FlatPPORunnerCfg):
+    """Same as G1 flat PPO but logs under ``g1_dribbling`` (isolated from kick / generic flat runs)."""
+
+    experiment_name = "g1_dribbling"
+
+
+@configclass
+class G1DribblingRecurrentPPORunnerCfg(G1FlatRecurrentPPORunnerCfg):
+    """RNN PPO with dribbling log root; matches ``shell/progressive_dribbling_train.sh`` defaults."""
+
+    experiment_name = "g1_dribbling"
+
+
 LOW_FREQ_SCALE = 0.5
 
 

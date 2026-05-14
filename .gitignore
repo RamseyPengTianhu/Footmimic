@@ -49,6 +49,8 @@ _shs
 pbhc-motion/
 motion-data/
 .hypothesis/
+gmr/
+temp/
 
 *_original.*
 *_temp.*
@@ -56,5 +58,4 @@ motion-data/
 *_old.*
 *copy*
 logs/
-motions/
 *.pt

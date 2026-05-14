@@ -51,6 +51,11 @@ class MultiMotionLoader:
         kick_frame_list = []
         kick_end_frame_list = []
 
+        ball_pos_w_list: list[torch.Tensor] = []
+        dribble_cg_contact_list: list[torch.Tensor] = []
+        dribble_cg_foot_list: list[torch.Tensor] = []
+        motion_has_ball_demo_list: list[bool] = []
+
         self.fps_list = []
 
         max_T = 0  # Track maximum frame count.
@@ -108,6 +113,39 @@ class MultiMotionLoader:
                     kef_value = -1
             kick_end_frame_list.append(kef_value)
 
+            T = int(jp.shape[0])
+
+            if "ball_pos_w" in data.files:
+                ba = np.asarray(data["ball_pos_w"], dtype=np.float32)
+                if ba.shape[0] != T:
+                    raise ValueError(
+                        f"{motion_file}: ball_pos_w length {ba.shape[0]} != joint_pos length {T}"
+                    )
+                ball_pos_w_list.append(torch.tensor(ba, dtype=torch.float32, device=device))
+                motion_has_ball_demo_list.append(True)
+            else:
+                ball_pos_w_list.append(torch.zeros((T, 3), dtype=torch.float32, device=device))
+                motion_has_ball_demo_list.append(False)
+
+            cg_contact = torch.zeros(T, dtype=torch.int8, device=device)
+            cg_foot = torch.full((T,), -1, dtype=torch.int8, device=device)
+            if "dribble_cg_contact" in data.files:
+                cc = np.asarray(data["dribble_cg_contact"]).reshape(-1).astype(np.int8)[:T]
+                cg_contact[: cc.shape[0]] = torch.as_tensor(cc, device=device, dtype=torch.int8)
+            elif kf_value >= 0 and kef_value >= kf_value:
+                cg_contact[kf_value : kef_value + 1] = 1
+                if label_value == "left":
+                    cg_foot[kf_value : kef_value + 1] = 0
+                elif label_value == "right":
+                    cg_foot[kf_value : kef_value + 1] = 1
+
+            if "dribble_cg_foot" in data.files:
+                cf = np.asarray(data["dribble_cg_foot"]).reshape(-1).astype(np.int8)[:T]
+                cg_foot[: cf.shape[0]] = torch.as_tensor(cf, device=device, dtype=torch.int8)
+
+            dribble_cg_contact_list.append(cg_contact)
+            dribble_cg_foot_list.append(cg_foot)
+
             max_T = max(max_T, jp.shape[0])
 
         # Pad all files to max_T and stack into tensors.
@@ -120,6 +158,17 @@ class MultiMotionLoader:
                 # pad_tensor = torch.cat([t, torch.full([*pad_size], pad_value, device=self.device, dtype=t.dtype)], dim=0)
                 padded.append(pad_tensor)
             return torch.stack(padded, dim=0)  # shape: (num_files, max_T, ...)
+
+        def pad_1d_int8(tensor_list: list[torch.Tensor], pad_value: int) -> torch.Tensor:
+            padded = []
+            for t in tensor_list:
+                T = int(t.shape[0])
+                pad_size = max_T - T
+                pad_tensor = torch.cat(
+                    [t, torch.full((pad_size,), pad_value, device=self.device, dtype=torch.int8)], dim=0
+                )
+                padded.append(pad_tensor)
+            return torch.stack(padded, dim=0)
 
         self.joint_pos = pad_tensor_list(joint_pos_list)
         self.joint_vel = pad_tensor_list(joint_vel_list)
@@ -136,6 +185,12 @@ class MultiMotionLoader:
         self._kick_leg_labels = tuple(kick_leg_labels)
         self._kick_frames = torch.tensor(kick_frame_list, dtype=torch.long, device=self.device)
         self._kick_end_frames = torch.tensor(kick_end_frame_list, dtype=torch.long, device=self.device)
+
+        self._ball_pos_w = pad_tensor_list(ball_pos_w_list, pad_value=0.0)
+        self._dribble_cg_contact = pad_1d_int8(dribble_cg_contact_list, pad_value=0)
+        self._dribble_cg_foot = pad_1d_int8(dribble_cg_foot_list, pad_value=-1)
+        self.motion_has_ball_demo = torch.tensor(motion_has_ball_demo_list, dtype=torch.bool, device=self.device)
+        self.motion_has_dribble_cg = torch.any(self._dribble_cg_contact > 0, dim=1)
 
     @property
     def body_pos_w(self) -> torch.Tensor:
@@ -166,7 +221,22 @@ class MultiMotionLoader:
     def kick_end_frames(self) -> torch.Tensor:
         """Per-motion kick end frame indices. -1 means not annotated."""
         return self._kick_end_frames
-    
+
+    @property
+    def ball_pos_w(self) -> torch.Tensor:
+        """Demo ball positions from motion files ``[num_files, T, 3]`` (padded)."""
+        return self._ball_pos_w
+
+    @property
+    def dribble_cg_contact(self) -> torch.Tensor:
+        """Per-frame contact annotation ``[num_files, T]`` (0/1, padded with 0)."""
+        return self._dribble_cg_contact
+
+    @property
+    def dribble_cg_foot(self) -> torch.Tensor:
+        """Per-frame foot id: -1 unknown/none, 0 left, 1 right (padded with -1)."""
+        return self._dribble_cg_foot
+
     def get_last_frame_anchor_pos(self, motion_idx: int, anchor_body_idx: int, motion_length: int) -> torch.Tensor:
         """Get the anchor position at the last frame of the specified motion."""
         last_frame_idx = motion_length - 1
@@ -219,6 +289,8 @@ class MotionCommand(CommandTerm):
         )
 
         self.motion = MultiMotionLoader(self.cfg.motion_files, self.body_indexes, device=self.device)
+        if bool(getattr(self.cfg, "normalize_motion_yaw", False)):
+            self._normalize_motion_yaw_and_xy()
         kick_leg_to_id = {"left": 0, "right": 1}
         self._kick_leg_id_to_name = {v: k for k, v in kick_leg_to_id.items()}
         self._kick_leg_id_to_name[-1] = "unknown"
@@ -435,10 +507,82 @@ class MotionCommand(CommandTerm):
         """Per-env kick end frame index. -1 means not annotated."""
         return self.motion.kick_end_frames[self.motion_idx]
 
+    @property
+    def dribble_cg_contact_ref(self) -> torch.Tensor:
+        """Annotated contact (0/1) at current motion time, shape ``(num_envs,)``."""
+        return self.motion.dribble_cg_contact[self.motion_idx, self.time_steps].to(torch.bool)
+
+    @property
+    def dribble_cg_foot_ref(self) -> torch.Tensor:
+        """Annotated foot id (-1 none, 0 left, 1 right), shape ``(num_envs,)``."""
+        return self.motion.dribble_cg_foot[self.motion_idx, self.time_steps].to(torch.int64)
+
+    @property
+    def motion_has_dribble_cg_label(self) -> torch.Tensor:
+        """Whether the loaded motion clip has any CG contact labels, shape ``(num_envs,)``."""
+        return self.motion.motion_has_dribble_cg[self.motion_idx]
+
+    def get_dribble_demo_ball_goal_world(self) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        """Optional demo ball goal in world frame for dribbling CG rewards.
+
+        Returns ``(goal_pos_w, has_demo_mask)`` or ``(None, None)`` when not implemented.
+        """
+        return None, None
+
     def _to_env_id_tensor(self, env_ids: Sequence[int] | torch.Tensor) -> torch.Tensor:
         if isinstance(env_ids, torch.Tensor):
             return env_ids.to(self.device, dtype=torch.long)
         return torch.as_tensor(list(env_ids), dtype=torch.long, device=self.device)
+
+    def _normalize_motion_yaw_and_xy(self):
+        """Rotate/translate each loaded motion so first-frame anchor → world (0, 0, z0) facing +x.
+
+        Applied to ``body_pos_w``, ``body_quat_w``, ``body_lin_vel_w``, ``body_ang_vel_w``
+        and ``ball_pos_w`` (when present). Joint ``pos`` / ``vel`` are body-local and
+        unchanged. Padding frames (beyond ``file_lengths``) are transformed too; they are
+        never read at runtime so the values do not matter.
+        """
+        motion = self.motion
+        if motion is None:
+            return
+        anchor_idx = self.motion_anchor_body_index
+        num_motions = motion._body_pos_w.shape[0]
+        T = motion._body_pos_w.shape[1]
+        B = motion._body_pos_w.shape[2]
+
+        for mi in range(num_motions):
+            first_xyz = motion._body_pos_w[mi, 0, anchor_idx].clone()
+            first_quat = motion._body_quat_w[mi, 0, anchor_idx].clone()
+            inv_yaw = yaw_quat(quat_inv(first_quat))
+
+            delta = torch.zeros(3, device=self.device, dtype=motion._body_pos_w.dtype)
+            delta[:2] = -first_xyz[:2]
+
+            inv_yaw_bcast = inv_yaw.unsqueeze(0).expand(T * B, -1)
+
+            pos = motion._body_pos_w[mi].reshape(T * B, 3)
+            pos = pos + delta.unsqueeze(0)
+            pos = quat_apply(inv_yaw_bcast, pos)
+            motion._body_pos_w[mi] = pos.reshape(T, B, 3)
+
+            quat = motion._body_quat_w[mi].reshape(T * B, 4)
+            quat = quat_mul(inv_yaw_bcast, quat)
+            motion._body_quat_w[mi] = quat.reshape(T, B, 4)
+
+            lv = motion._body_lin_vel_w[mi].reshape(T * B, 3)
+            lv = quat_apply(inv_yaw_bcast, lv)
+            motion._body_lin_vel_w[mi] = lv.reshape(T, B, 3)
+
+            av = motion._body_ang_vel_w[mi].reshape(T * B, 3)
+            av = quat_apply(inv_yaw_bcast, av)
+            motion._body_ang_vel_w[mi] = av.reshape(T, B, 3)
+
+            if bool(motion.motion_has_ball_demo[mi].item()):
+                bp = motion._ball_pos_w[mi]
+                inv_yaw_ball = inv_yaw.unsqueeze(0).expand(bp.shape[0], -1)
+                bp = bp + delta.unsqueeze(0)
+                bp = quat_apply(inv_yaw_ball, bp)
+                motion._ball_pos_w[mi] = bp
 
     def _sample_soccer_offset(self, env_ids: Sequence[int] | torch.Tensor):
         ids = self._to_env_id_tensor(env_ids)
@@ -924,3 +1068,11 @@ class MotionCommandCfg(CommandTermCfg):
     # Blind-zone config: ball is invisible when robot-ball (x, y) distance is outside [min, max].
     blind_distance_min_range: tuple[float, float] = (0.3, 0.5)  # Minimum distance sampling range.
     blind_distance_max_range: tuple[float, float] = (1.5, 2.0)  # Maximum distance sampling range.
+
+    # When True, post-process each loaded motion so its first-frame anchor sits at
+    # world (0, 0, z0) facing world +x. After this normalization, robot reset
+    # (``root_ori = body_quat_w[:, 0]``) faces +x, and the motion's per-frame body
+    # data is expressed in a frame consistent across motions. Joint pos/vel are
+    # body-local and unaffected. Useful when the demo is slalom and you only want
+    # to keep the gait style, not the world-frame trajectory.
+    normalize_motion_yaw: bool = False

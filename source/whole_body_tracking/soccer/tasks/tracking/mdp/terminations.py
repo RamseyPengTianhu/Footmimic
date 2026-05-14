@@ -12,6 +12,7 @@ from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 
 from soccer.tasks.tracking.mdp.commands_multi_motion_soccer import MotionCommand
+from soccer.tasks.tracking.mdp.rewards_dribbling import soccer_ball_contact_force_magnitude
 
 from soccer.tasks.tracking.mdp.rewards import _get_body_indexes
 
@@ -101,6 +102,47 @@ def ball_lost_dribbling(
 
     lost = past_grace & ((dist_xy > max_distance) | (vel_diff > max_vel_divergence))
     return lost
+
+
+def dribbling_no_ball_contact_timeout(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    ball_sensor_name: str = "soccer_ball_contact",
+    contact_force_threshold: float = 1.0,
+    grace_steps: int = 50,
+    max_steps_without_contact: int = 125,
+) -> torch.Tensor:
+    """End the episode if the ball sees no robot contact for too long after warm-up.
+
+    Counts simulation steps (post-``grace_steps``) where ball contact force stays
+    at or below ``contact_force_threshold``. Resets the counter on contact or on
+    episode start. Complements ``ball_lost_dribbling`` by discouraging "pose near
+    the ball but never touch" strategies.
+    """
+    force_mag = soccer_ball_contact_force_magnitude(env, ball_sensor_name)
+    has_contact = force_mag > contact_force_threshold
+
+    step_buf = getattr(env, "episode_length_buf", torch.zeros(env.num_envs, device=env.device))
+    past_grace = step_buf > grace_steps
+    reset_m = step_buf == 0
+
+    buf_name = "_dribbling_no_contact_step_count"
+    cnt = getattr(env, buf_name, None)
+    if cnt is None or cnt.shape[0] != env.num_envs:
+        cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
+
+    cnt = torch.where(
+        reset_m,
+        torch.zeros_like(cnt),
+        torch.where(
+            past_grace,
+            torch.where(has_contact, torch.zeros_like(cnt), cnt + 1),
+            torch.zeros_like(cnt),
+        ),
+    )
+    setattr(env, buf_name, cnt)
+
+    return cnt >= max_steps_without_contact
 
 
 def contact_phase_violation(
