@@ -1,10 +1,12 @@
 """Standalone task-feature computation for LATENT-v2 task_features mode.
 
-Computes 22D ball-foot relation features from live simulation state.
+Computes 26D task features from live simulation state.
 These features are shared across ALL kick motions and are available at
 deployment (from camera + FK), replacing the 58D motion reference.
 
-Feature vector (per env, 22D) — identical to V10ObsBuilder._compute_ball_foot_relation:
+Feature vector (per env, 26D):
+
+  ── V10 spatial geometry (22D, identical to V10ObsBuilder._compute_ball_foot_relation) ──
   ball_rel_swing              3D   ball pos in swing-foot local frame
   ball_rel_support            3D   ball pos in support-foot local frame
   ball_rel_pelvis             3D   ball pos in pelvis local frame
@@ -18,17 +20,36 @@ Feature vector (per env, 22D) — identical to V10ObsBuilder._compute_ball_foot_
   swing_vel_along_kick        1D   swing foot velocity along kick dir
   swing_vel_to_ball_align     1D   swing foot velocity toward ball
   ball_vel_mag                1D   ball speed magnitude
+
+  ── Phase embedding (4D) ──
+  progress                    1D   motion progress t/T, 0→1
+  phase_sin                   1D   sin(2π · progress)
+  phase_cos                   1D   cos(2π · progress)
+  kick_flag                   1D   1.0 if phase ≥ STRIKE (CG=1), else 0.0
   ─────────────────────────────
-  Total                       22D
+  Total                       26D
 """
 
 from __future__ import annotations
 
+import math
 import torch
 from isaaclab.utils.math import quat_apply, quat_inv
 
-# Constant: total feature dimensionality
-TASK_FEATURES_DIM = 22
+# ── Feature ABI tracking ───────────────────────────────────────────────────
+FEATURE_VERSION = "v10_phase_26d"
+TASK_FEATURES_DIM = 26
+FEATURE_NAMES = [
+    "ball_rel_swing(3)", "ball_rel_support(3)", "ball_rel_pelvis(3)",
+    "ball_vel_local(3)", "kick_dir_local(2)",
+    "swing_foot_ball_dist(1)", "swing_ball_longitudinal(1)", "swing_ball_lateral(1)",
+    "support_ball_lateral(1)", "support_ball_longitudinal(1)",
+    "swing_vel_along_kick(1)", "swing_vel_to_ball_align(1)", "ball_vel_mag(1)",
+    "progress(1)", "phase_sin(1)", "phase_cos(1)", "kick_flag(1)",
+]
+
+# Phase IDs (matching event_phase.py constants)
+_PHASE_STRIKE = 2
 
 # Default body names (G1 robot)
 _SWING_FOOT = "right_ankle_roll_link"
@@ -43,9 +64,10 @@ def compute_ball_foot_relation(
     pelvis: str = _PELVIS,
     command_name: str = "motion",
 ) -> torch.Tensor:
-    """Compute 22-D ball–foot relation features for all environments.
+    """Compute 26-D task features (V10 spatial geometry + phase embedding).
 
-    Exactly mirrors V10ObsBuilder._compute_ball_foot_relation.
+    Spatial geometry (22D) is identical to V10ObsBuilder._compute_ball_foot_relation.
+    Phase embedding (4D) provides temporal context from the motion command.
 
     Parameters
     ----------
@@ -57,7 +79,7 @@ def compute_ball_foot_relation(
 
     Returns
     -------
-    torch.Tensor   shape (num_envs, 22)
+    torch.Tensor   shape (num_envs, 26)
     """
     # Access scene objects
     robot = env.scene["robot"]
@@ -121,12 +143,22 @@ def compute_ball_foot_relation(
 
     ball_vel_mag = torch.norm(ball_vel_w[:, :2], dim=-1, keepdim=True)
 
-    # ── Concatenate 22D (same order as V10ObsBuilder) ───────────────────
+    # ── Phase embedding (4D) ───────────────────────────────────────────
+    progress = (command.time_steps.float() / command.motion_length.float().clamp(min=1)).unsqueeze(-1)
+    progress = progress.clamp(0.0, 1.0)
+    phase_sin = torch.sin(2.0 * math.pi * progress)
+    phase_cos = torch.cos(2.0 * math.pi * progress)
+    kick_flag = (command.event_phase_id >= _PHASE_STRIKE).float().unsqueeze(-1)
+
+    # ── Concatenate 26D ─────────────────────────────────────────────────
     return torch.cat([
+        # V10 spatial geometry (22D)
         ball_rel_swing, ball_rel_support, ball_rel_pelvis,         # 9D
         ball_vel_local, kick_dir_local,                             # 5D
         swing_foot_ball_dist, swing_ball_longitudinal, swing_ball_lateral,  # 3D
         support_ball_lateral, support_ball_longitudinal,            # 2D
         swing_vel_along_kick, swing_vel_to_ball_align,              # 2D
         ball_vel_mag,                                               # 1D
-    ], dim=-1)  # [N, 22]
+        # Phase embedding (4D)
+        progress, phase_sin, phase_cos, kick_flag,                  # 4D
+    ], dim=-1)  # [N, 26]
