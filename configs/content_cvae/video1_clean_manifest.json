@@ -1,0 +1,38 @@
+{
+  "schema": "content_cvae_filter_manifest_v1",
+  "notes": [
+    "Initial diagnostic-driven clean split for motions/Video1.",
+    "Frame ranges use [start, end) indices. Default range matching is overlap, so any CVAE window touching the range is removed.",
+    "This manifest is intentionally conservative and should be revised after visual review."
+  ],
+  "range_match": "overlap",
+  "exclude_motions": [
+    {
+      "motion": "23_freekick_unitree_g1_right.npz",
+      "reason": "CVAE reconstruction OOD across approach/prestrike/strike/follow."
+    }
+  ],
+  "exclude_ranges": [
+    {
+      "motion": "13_freekick_unitree_g1_left.npz",
+      "start": 98,
+      "end": 115,
+      "phases": ["follow"],
+      "reason": "Large follow-through OOD spike around kick_delta +39 to +47."
+    },
+    {
+      "motion": "10_penalty1_unitree_g1_right.npz",
+      "start": 60,
+      "end": 75,
+      "phases": ["follow"],
+      "reason": "Follow-through OOD spike around center frame 67."
+    },
+    {
+      "motion": "5_penalty5_unitree_g1_right.npz",
+      "start": 0,
+      "end": 12,
+      "phases": ["approach"],
+      "reason": "Initial approach OOD spike in the first windows."
+    }
+  ]
+}

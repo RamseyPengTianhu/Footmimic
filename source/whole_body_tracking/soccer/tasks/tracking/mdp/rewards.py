@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
-from isaaclab.utils.math import quat_error_magnitude, quat_apply, quat_inv, quat_apply_inverse
+from isaaclab.utils.math import quat_error_magnitude, quat_apply, quat_inv, quat_apply_inverse, yaw_quat
 
 from soccer.tasks.tracking.mdp.commands_multi_motion_soccer import MotionCommand
 from soccer.tasks.tracking.mdp.observations import get_target_point_world
@@ -237,6 +237,55 @@ def target_point_proximity(env: ManagerBasedRLEnv, std: float, command_name: str
     diff_xy = base_xy - target[..., :2]
     error = torch.sum(diff_xy * diff_xy, dim=-1)
     proximity_reward = torch.exp(-error / std**2)
+
+    # Query kick-contact status.
+    contact_awarded = tracker.get_contact_awarded()
+    frozen_reward = tracker.get_frozen_proximity_reward()
+    
+    # Freeze reward for environments that just kicked this step.
+    new_kick_mask = contact_awarded & (frozen_reward == 0.0)
+    if torch.any(new_kick_mask):
+        new_kick_ids = torch.nonzero(new_kick_mask, as_tuple=False).squeeze(-1)
+        tracker.freeze_proximity_reward(new_kick_ids, proximity_reward[new_kick_ids])
+        frozen_reward = tracker.get_frozen_proximity_reward()
+        
+    return torch.where(contact_awarded, frozen_reward, proximity_reward)
+
+def target_point_relative_proximity(env: ManagerBasedRLEnv, std: float, command_name: str = "motion",) -> torch.Tensor:
+    """Reward proximity to the expected reference-relative ball position.
+    
+    Instead of pulling the robot's pelvis to the absolute ball coordinates (which contradicts the reference motion),
+    this reward pulls the robot to a position where the ball is in the correct relative position (and yaw angle) 
+    as defined by the reference motion and the initial ball placement offset.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    tracker = _get_kick_tracker(command)
+    
+    # 1. 真实球的位置 (World)
+    ball_pos_w = get_target_point_world(env, command_name).to(device=command.robot_anchor_pos_w.device, dtype=command.robot_anchor_pos_w.dtype)
+    
+    # 2. 参考动作中的球位置 (即带着 curve_offset 的目标点)
+    ball_ref_pos_w = command.initial_target_point_pos
+    
+    # 3. 提取 Yaw-only Quaternion，防止骨盆俯仰侧倾污染水平面计算
+    ref_yaw_quat = yaw_quat(command.anchor_quat_w)
+    robot_yaw_quat = yaw_quat(command.robot_anchor_quat_w)
+    
+    # 4. 计算在参考动作当前帧下，球相对于骨盆的局部世界偏移
+    diff_ref_world = ball_ref_pos_w - command.anchor_pos_w
+    diff_ref_world[..., 2] = 0.0 # 强制只关心水平面
+    
+    # 将世界偏移转为参考骨盆的局部偏移 (Local Offset)
+    rel_ball_ref_local = quat_apply_inverse(ref_yaw_quat, diff_ref_world)
+    
+    # 5. 将局部偏移转换到机器人的当前朝向下，得到机器人应该在的预期球位置
+    rel_ball_cur_world = quat_apply(robot_yaw_quat, rel_ball_ref_local)
+    expected_ball_world = command.robot_anchor_pos_w + rel_ball_cur_world
+    
+    # 6. 计算当前真实的球与预期球位置的误差
+    diff_xy = expected_ball_world[..., :2] - ball_pos_w[..., :2]
+    error = torch.sum(diff_xy * diff_xy, dim=-1)
+    proximity_reward = torch.exp(-error / std**2)
     
     # Query kick-contact status.
     contact_awarded = tracker.get_contact_awarded()
@@ -248,10 +297,9 @@ def target_point_proximity(env: ManagerBasedRLEnv, std: float, command_name: str
         new_kick_ids = torch.nonzero(new_kick_mask, as_tuple=False).squeeze(-1)
         tracker.freeze_proximity_reward(new_kick_ids, proximity_reward[new_kick_ids])
         frozen_reward = tracker.get_frozen_proximity_reward()
-    
-    # Return frozen reward after contact; otherwise return current reward.
-    reward = torch.where(contact_awarded, frozen_reward, proximity_reward)
-    return reward
+        
+    return torch.where(contact_awarded, frozen_reward, proximity_reward)
+
 
 
 def target_point_contact(env: ManagerBasedRLEnv, 
@@ -675,3 +723,632 @@ def dynamic_ankle_masking_body_pos(
 
     mean_error = per_body_error.mean(dim=-1)
     return torch.exp(-mean_error / (std ** 2))
+
+
+def ankle_lock_on_contact(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    ball_sensor_name: str = "soccer_ball_contact",
+    horizontal_force_threshold: float = 5.0,
+    ankle_cfg: SceneEntityCfg | None = None,
+    cg_margin: int = 5,
+    lock_margin: int = 2,
+) -> torch.Tensor:
+    """Penalise ankle joint velocity of the *kicking foot only* near kick_frame.
+
+    Active in a tight window [kick_frame - lock_margin, kick_frame + lock_margin].
+    Default lock_margin=2 gives a 5-frame window centered on the kick moment.
+
+    Uses the motion's kick_leg annotation (left=0, right=1) to select
+    which ankle joints to lock.
+
+    ankle_cfg.joint_names must be ordered:
+        [left_pitch, left_roll, right_pitch, right_roll]
+    """
+    if ankle_cfg is None:
+        raise ValueError("ankle_cfg must be provided with ankle joint names")
+
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    kf = command.kick_frame       # (num_envs,)
+    kef = command.kick_end_frame   # (num_envs,)
+    t = command.time_steps         # (num_envs,)
+    has_annotation = kf >= 0
+
+    # Gate: exactly the annotated contact window [kick_frame, kick_end_frame].
+    active = has_annotation & (t >= kf)
+    has_kef = kef >= 0
+    active = active & (~has_kef | (t <= kef))
+
+    # Get all ankle joint velocities: [left_pitch, left_roll, right_pitch, right_roll]
+    robot = env.scene[ankle_cfg.name]
+    ankle_joint_ids = torch.as_tensor(
+        robot.find_joints(ankle_cfg.joint_names, preserve_order=True)[0],
+        device=env.device,
+    )
+    ankle_vel = robot.data.joint_vel[:, ankle_joint_ids]  # (num_envs, 4)
+
+    # Determine kicking leg per env: 0=left, 1=right
+    # ankle_cfg joints are ordered [left_pitch, left_roll, right_pitch, right_roll]
+    kick_leg = command.motion_kick_leg[command.motion_idx]  # (num_envs,) 0=left, 1=right
+
+    # Build per-env mask: only penalize the kicking side's 2 joints
+    # left leg → indices 0,1; right leg → indices 2,3
+    num_ankle_joints = ankle_vel.shape[1]  # should be 4
+    joint_mask = torch.zeros_like(ankle_vel, dtype=torch.bool)
+    is_left = kick_leg == 0
+    is_right = kick_leg == 1
+    if num_ankle_joints >= 4:
+        joint_mask[is_left, 0] = True
+        joint_mask[is_left, 1] = True
+        joint_mask[is_right, 2] = True
+        joint_mask[is_right, 3] = True
+    else:
+        # Fallback: penalize all if joint count doesn't match expected layout
+        joint_mask[:] = True
+
+    # Compute penalty: sum of squared velocities for selected joints only
+    masked_vel = torch.where(joint_mask, ankle_vel, torch.zeros_like(ankle_vel))
+    penalty = torch.sum(torch.square(masked_vel), dim=1)
+
+    # Zero out for envs not in the active window.
+    penalty[~active] = 0.0
+    return penalty
+
+
+# ---------------------------------------------------------------------------
+# Post-Strike Stabilization
+# ---------------------------------------------------------------------------
+
+def post_strike_stability(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    ball_sensor_name: str = "soccer_ball_contact",
+    horizontal_force_threshold: float = 5.0,
+    post_delay: int = 3,
+    post_duration: int = 25,
+    tilt_std: float = 0.3,
+    angvel_std: float = 1.0,
+    tilt_weight: float = 0.6,
+    angvel_weight: float = 0.4,
+) -> torch.Tensor:
+    """Reward base stability AFTER successful ball contact.
+
+    This reward is completely safe for kick acquisition because it only
+    activates after ``contact_awarded`` is True AND ``post_delay`` frames
+    have elapsed. It cannot interfere with the approach, pre-strike, or
+    strike phases.
+
+    The reward window is capped at ``post_duration`` frames after the delay
+    to prevent unbounded reward accumulation in long episodes.
+
+    Components:
+      1. **Tilt**: penalizes base roll/pitch deviation from upright
+         (using projected gravity Z component in body frame)
+      2. **Angular velocity**: penalizes high roll/pitch angular velocity
+         in body frame (yaw rotation is allowed)
+
+    Args:
+        post_delay: number of frames to wait after contact before activating.
+        post_duration: maximum number of frames the reward is active.
+        tilt_std: sigma for tilt Gaussian (smaller = stricter).
+        angvel_std: sigma for angular velocity Gaussian (smaller = stricter).
+        tilt_weight: relative weight of tilt component [0, 1].
+        angvel_weight: relative weight of angular velocity component [0, 1].
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    tracker = _get_kick_tracker(command)
+    device = env.device
+
+    # Ensure detection is current
+    tracker.detect(command, ball_sensor_name, horizontal_force_threshold)
+
+    contact_awarded = tracker.get_contact_awarded()
+    contact_frame = tracker.get_contact_frame()
+    t = command.time_steps.float()
+
+    # Gate: only activate in [contact_frame + post_delay, contact_frame + post_delay + post_duration]
+    t_since_contact = t - contact_frame
+    post_strike = (
+        contact_awarded
+        & (contact_frame >= 0)
+        & (t_since_contact > post_delay)
+        & (t_since_contact <= post_delay + post_duration)
+    )
+
+    reward = torch.zeros(env.num_envs, device=device)
+    if not torch.any(post_strike):
+        return reward
+
+    # --- Tilt component: projected gravity Z should be close to -1 (upright) ---
+    robot = command.robot
+    base_quat = robot.data.root_quat_w  # (num_envs, 4)
+    # Project gravity direction into body frame
+    # Convention: upright → projected_gravity ≈ [0, 0, -1]
+    gravity_vec = torch.tensor([0.0, 0.0, -1.0], device=device).expand(env.num_envs, 3)
+    projected_gravity = quat_apply_inverse(base_quat, gravity_vec)
+    # tilt_err: 0 = perfectly upright, ~2 = inverted
+    tilt_err = 1.0 + projected_gravity[:, 2]  # 0 when upright (-1 + 1 = 0)
+    r_tilt = torch.exp(-tilt_err.square() / (tilt_std ** 2))
+
+    # --- Angular velocity component: roll/pitch in body frame ---
+    # Rotate world-frame angular velocity to body frame so XY = roll/pitch
+    ang_vel_w = robot.data.root_ang_vel_w  # (num_envs, 3)
+    ang_vel_b = quat_apply_inverse(base_quat, ang_vel_w)
+    # Penalize roll (X) and pitch (Y) angular velocity, allow yaw (Z)
+    ang_vel_rp_sq = ang_vel_b[:, 0].square() + ang_vel_b[:, 1].square()
+    r_angvel = torch.exp(-ang_vel_rp_sq / (angvel_std ** 2))
+
+    # Combine
+    reward[post_strike] = (tilt_weight * r_tilt[post_strike] +
+                           angvel_weight * r_angvel[post_strike])
+    return reward
+
+
+# ---------------------------------------------------------------------------
+# Support-Foot Placement Prior
+# ---------------------------------------------------------------------------
+
+def support_foot_placement(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    support_foot_name: str = "left_ankle_roll_link",
+    side_offset: float = 0.20,
+    pos_std: float = 0.20,
+    yaw_std: float = 0.4,
+    yaw_weight: float = 0.5,
+    plant_before: int = 20,
+    plant_after: int = 5,
+    near_ball_dist: float = 1.2,
+) -> torch.Tensor:
+    """Reward support foot placement parallel to ball and oriented toward target.
+
+    During the plant window, this reward encourages:
+      1. **Position**: The support foot should land parallel to (beside) the ball,
+         offset laterally by ``side_offset`` meters along the perpendicular of
+         the kick direction (ball → target destination).
+      2. **Yaw**: The support foot forward axis should point toward the target
+         destination, matching the intended kick direction.
+
+    The kick direction is computed as ``normalize(target_destination - ball_pos)``.
+    The side direction is the perpendicular to this, pointing toward the
+    support foot side (left for right-footed kicks, right for left-footed kicks).
+
+    Gate: Active in plant window [kick_frame - plant_before, kick_frame + plant_after]
+    AND only when the pelvis is within ``near_ball_dist`` of the ball.
+    At 50 Hz, plant_before=20 ≈ 0.4s before contact — enough time to guide the
+    last stride before the kick.
+
+    Args:
+        support_foot_name: Body link name of the support foot.
+        side_offset: Lateral distance from ball center to desired support foot (meters).
+        pos_std: Gaussian std for positional reward (meters).
+        yaw_std: Gaussian std for yaw alignment reward (radians).
+        yaw_weight: Blending weight for yaw component (position weight is 1.0).
+        plant_before: Frames before kick_frame to start plant window.
+        plant_after: Frames after kick_frame to end plant window.
+        near_ball_dist: Max pelvis-to-ball distance to activate (meters).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    device = env.device
+
+    # --- Plant window gating ---
+    kf = command.kick_frame   # (N,) per-env kick frame, -1 if unannotated
+    t = command.time_steps    # (N,) current frame
+    has_annotation = kf >= 0
+    in_plant_window = has_annotation & (t >= (kf - plant_before)) & (t <= (kf + plant_after))
+
+    # --- Distance gating: only activate when pelvis is near ball ---
+    ball_pos_w = get_target_point_world(env, command_name).to(device=device)
+    ball_xy = ball_pos_w[:, :2]  # (N, 2)
+    pelvis_xy = command.robot_anchor_pos_w[:, :2]  # (N, 2)
+    pelvis_ball_dist = torch.norm(pelvis_xy - ball_xy, dim=-1)  # (N,)
+    near_ball = pelvis_ball_dist < near_ball_dist
+
+    # Combined gate
+    active = in_plant_window & near_ball
+
+    # --- Target destination (world) ---
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is not None:
+        dest_w = command.target_destination_pos + env_origins
+    else:
+        dest_w = command.target_destination_pos
+    dest_xy = dest_w[:, :2]  # (N, 2)
+
+    # --- Kick direction: ball → target destination ---
+    kick_dir = dest_xy - ball_xy  # (N, 2)
+    kick_dir_norm = torch.norm(kick_dir, dim=-1, keepdim=True).clamp(min=1e-6)
+    kick_dir = kick_dir / kick_dir_norm  # (N, 2) normalized
+
+    # --- Side direction (perpendicular to kick_dir) ---
+    # Rotate kick_dir 90° CCW → side points to the left of kick direction
+    side_dir = torch.stack([-kick_dir[:, 1], kick_dir[:, 0]], dim=-1)  # (N, 2)
+
+    # Determine side sign based on kick leg annotation.
+    # If kick leg is right (1), support foot is left → side_sign = +1 (left of kick_dir)
+    # If kick leg is left (0), support foot is right → side_sign = -1 (right of kick_dir)
+    kick_leg = command.kick_leg  # (N,) 0=left, 1=right, -1=unknown
+    side_sign = torch.where(kick_leg == 0, -1.0, 1.0).to(device=device)  # default +1 for right kick / unknown
+
+    # --- Desired support foot position: parallel to ball, laterally offset ---
+    desired_xy = ball_xy + side_sign.unsqueeze(-1) * side_offset * side_dir  # (N, 2)
+
+    # --- Actual support foot position (world) ---
+    robot = command.robot
+    support_body_idx = robot.body_names.index(support_foot_name)
+    support_pos_w = robot.data.body_pos_w[:, support_body_idx]  # (N, 3)
+    support_xy = support_pos_w[:, :2]  # (N, 2)
+
+    # --- Position reward ---
+    pos_error = torch.sum((support_xy - desired_xy) ** 2, dim=-1)  # (N,)
+    r_pos = torch.exp(-pos_error / (pos_std ** 2))
+
+    # --- Yaw reward: support foot yaw should face kick direction ---
+    # Extract yaw from support foot quaternion
+    support_quat = robot.data.body_quat_w[:, support_body_idx]  # (N, 4) wxyz
+    # Yaw = atan2(2*(wz + xy), 1 - 2*(yy + zz)) — standard quat-to-yaw for wxyz convention
+    w, x, y, z = support_quat[:, 0], support_quat[:, 1], support_quat[:, 2], support_quat[:, 3]
+    support_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))  # (N,)
+
+    # Desired yaw = direction of kick_dir
+    desired_yaw = torch.atan2(kick_dir[:, 1], kick_dir[:, 0])  # (N,)
+
+    # Wrap yaw error to [-pi, pi]
+    yaw_err = support_yaw - desired_yaw
+    yaw_err = torch.atan2(torch.sin(yaw_err), torch.cos(yaw_err))  # wrap to [-pi, pi]
+    r_yaw = torch.exp(-(yaw_err ** 2) / (yaw_std ** 2))
+
+    # --- Combined reward ---
+    reward = (1.0 * r_pos + yaw_weight * r_yaw) / (1.0 + yaw_weight)
+
+    # --- Gate by plant window + distance ---
+    reward = torch.where(active, reward, torch.zeros_like(reward))
+
+    return reward
+
+
+# ---------------------------------------------------------------------------
+# State-Based Support Foot Stability Prior
+# ---------------------------------------------------------------------------
+
+def _soft_range_reward(x: torch.Tensor, lo: float, hi: float, std: float) -> torch.Tensor:
+    """Soft range reward: 1.0 inside [lo, hi], gaussian decay outside."""
+    below = torch.exp(-((x - lo) ** 2) / (std ** 2)) * (x < lo).float()
+    above = torch.exp(-((x - hi) ** 2) / (std ** 2)) * (x > hi).float()
+    inside = ((x >= lo) & (x <= hi)).float()
+    return inside + below + above
+
+
+def support_foot_stability_prior(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    support_foot_name: str = "left_ankle_roll_link",
+    # --- Soft gate params ---
+    near_ball_dist: float = 0.8,
+    near_temp: float = 0.2,
+    contact_threshold: float = 20.0,
+    use_hard_contact_gate: bool = True,
+    # --- Ball contact gate ---
+    ball_sensor_name: str = "soccer_ball_contact",
+    ball_horizontal_force_threshold: float = 5.0,
+    # --- Reward params ---
+    vel_std: float = 0.2,
+    yaw_std: float = 0.6,
+    stable_weight: float = 0.3,
+    yaw_weight: float = 0.7,
+    # --- Region reward (Phase A2, optional) ---
+    use_region_reward: bool = False,
+    lateral_min: float = 0.18,
+    lateral_max: float = 0.35,
+    longitudinal_min: float = -0.15,
+    longitudinal_max: float = 0.08,
+    region_std: float = 0.1,
+    # --- Contact sensor ---
+    contact_sensor_name: str = "foot_contact",
+    # --- CG phase gate (v7.3) ---
+    cg_margin: int = 5,
+) -> torch.Tensor:
+    """State-based support foot brake prior (v7.3).
+
+    CG0-only dense reward: encourages the support foot to stabilise and
+    orient toward the kick direction during the approach phase.
+    Automatically disabled during CG1 (strike window) so it never
+    inhibits the kicking action.
+
+    Gates (all must be active):
+      0. CG phase is CG=0 (approach, before kick_frame - margin)  [v7.3]
+      1. The ball has NOT been kicked yet (pre_ball)
+      2. No robot-ball contact is happening THIS STEP (no_ball_contact_now)
+      3. The robot is close to the ball (soft sigmoid distance gate)
+      4. The support foot is in ground contact (hard or soft force gate)
+
+    Fail-safe: If the foot contact sensor is missing, returns zero reward.
+
+    Changes from v7.1:
+      - v7.3: Added CG0 gate — reward is zero during CG1 to prevent
+        the delayed-strike behaviour observed in v7.1 (ArgΔ = +152).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    device = env.device
+    tracker = _get_kick_tracker(command)
+    robot = command.robot
+
+    # ===== Fail-safe: require foot contact sensor =====
+    sensors = getattr(env.scene, "sensors", None)
+    contact_sensor = None
+    if sensors is not None:
+        if isinstance(sensors, dict):
+            contact_sensor = sensors.get(contact_sensor_name)
+        else:
+            contact_sensor = getattr(sensors, contact_sensor_name, None)
+
+    if contact_sensor is None:
+        # No foot contact sensor → cannot reliably gate → return zero
+        return torch.zeros(env.num_envs, device=device)
+
+    # ===== Cache body indices (robot vs sensor, may differ) =====
+    cache_key = f"_support_prior_cache_{support_foot_name}"
+    if not hasattr(env, cache_key):
+        robot_body_ids = [robot.body_names.index(support_foot_name)]
+        sensor_body_ids, _ = contact_sensor.find_bodies(
+            [support_foot_name], preserve_order=True
+        )
+        cache = {
+            "robot_body_idx": robot_body_ids[0],
+            "sensor_body_idx": sensor_body_ids[0] if len(sensor_body_ids) > 0 else None,
+        }
+        setattr(env, cache_key, cache)
+
+    cache = getattr(env, cache_key)
+    support_body_idx = cache["robot_body_idx"]
+    support_sensor_idx = cache["sensor_body_idx"]
+
+    if support_sensor_idx is None:
+        return torch.zeros(env.num_envs, device=device)
+
+    # ===== Gate 1: ball not yet kicked =====
+    pre_ball = (~tracker.get_contact_awarded()).float()  # (N,)
+
+    # ===== Gate 2: no robot-ball contact THIS STEP =====
+    # Use horizontal (XY) force only — filters out ball-ground normal force (Z).
+    # Same logic as early_collision_penalty.
+    try:
+        ball_contact_sensor = env.scene[ball_sensor_name]
+        net_forces = ball_contact_sensor.data.net_forces_w_history
+        if net_forces.dim() == 4:
+            force_vec = net_forces[:, :, 0, :2].sum(dim=1)  # (N, 2)
+        else:
+            force_vec = net_forces[:, 0, :2]  # (N, 2)
+        force_mag = torch.norm(force_vec, dim=-1)  # (N,)
+        no_ball_contact_now = (force_mag < ball_horizontal_force_threshold).float()
+    except Exception:
+        no_ball_contact_now = torch.ones(env.num_envs, device=device)
+
+    # ===== Gate 3: robot proximity to ball (sigmoid) =====
+    ball_pos_w = get_target_point_world(env, command_name).to(device=device)
+    pelvis_xy = command.robot_anchor_pos_w[:, :2]
+    ball_xy = ball_pos_w[:, :2]
+    dist = torch.norm(pelvis_xy - ball_xy, dim=-1)  # (N,)
+    near_ball_w = torch.sigmoid((near_ball_dist - dist) / near_temp)  # (N,)
+
+    # ===== Gate 4: support foot ground contact =====
+    forces = contact_sensor.data.net_forces_w  # (N, B, 3)
+    if forces is not None and forces.numel() > 0:
+        forces = forces.to(device=device)
+        support_force_z = forces[:, support_sensor_idx, 2].clamp(min=0.0)
+    else:
+        support_force_z = torch.zeros(env.num_envs, device=device)
+
+    if use_hard_contact_gate:
+        support_contact_w = (support_force_z > contact_threshold).float()
+    else:
+        support_contact_w = torch.sigmoid(
+            (support_force_z - contact_threshold) / 10.0
+        )
+
+    # ===== Gate 5 (v7.3): CG0 phase only =====
+    is_cg0, _ = _get_cg_phase(command, margin=cg_margin)
+
+    # ===== Combined activation weight =====
+    active_w = is_cg0.float() * pre_ball * no_ball_contact_now * near_ball_w * support_contact_w  # (N,)
+
+    # ===== R1: Support foot XY velocity stability =====
+    support_vel_w = robot.data.body_lin_vel_w[:, support_body_idx]  # (N, 3)
+    vel_sq = torch.sum(support_vel_w[:, :2] ** 2, dim=-1)  # (N,)
+    r_stable = torch.exp(-vel_sq / (vel_std ** 2))  # (N,)
+
+    # ===== R2: Support foot yaw alignment toward kick direction =====
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is not None:
+        dest_w = command.target_destination_pos + env_origins
+    else:
+        dest_w = command.target_destination_pos
+    dest_xy = dest_w[:, :2]
+
+    kick_dir = dest_xy - ball_xy  # (N, 2)
+    kick_dir_norm = torch.norm(kick_dir, dim=-1, keepdim=True).clamp(min=1e-6)
+    kick_dir = kick_dir / kick_dir_norm  # (N, 2) normalized
+
+    support_quat = robot.data.body_quat_w[:, support_body_idx]  # (N, 4) wxyz
+    w, x, y, z = support_quat[:, 0], support_quat[:, 1], support_quat[:, 2], support_quat[:, 3]
+    support_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    desired_yaw = torch.atan2(kick_dir[:, 1], kick_dir[:, 0])
+    yaw_err = support_yaw - desired_yaw
+    yaw_err = torch.atan2(torch.sin(yaw_err), torch.cos(yaw_err))
+    r_yaw = torch.exp(-(yaw_err ** 2) / (yaw_std ** 2))  # (N,)
+
+    # ===== Phase A2: Optional broad region reward =====
+    if use_region_reward:
+        support_pos_w = robot.data.body_pos_w[:, support_body_idx]
+        support_xy = support_pos_w[:, :2]
+
+        side_dir = torch.stack([-kick_dir[:, 1], kick_dir[:, 0]], dim=-1)
+        kick_leg = command.kick_leg
+        side_sign = torch.where(kick_leg == 0, -1.0, 1.0).to(device=device)
+
+        rel = support_xy - ball_xy
+        longitudinal = torch.sum(rel * kick_dir, dim=-1)
+        lateral = side_sign * torch.sum(rel * side_dir, dim=-1)
+
+        r_lat = _soft_range_reward(lateral, lateral_min, lateral_max, region_std)
+        r_lon = _soft_range_reward(longitudinal, longitudinal_min, longitudinal_max, region_std)
+        r_region = r_lat * r_lon
+
+        total_w = stable_weight + yaw_weight + 0.2
+        reward = active_w * (
+            stable_weight / total_w * r_stable
+            + yaw_weight / total_w * r_yaw
+            + 0.2 / total_w * r_region
+        )
+    else:
+        total_w = stable_weight + yaw_weight
+        reward = active_w * (
+            stable_weight / total_w * r_stable
+            + yaw_weight / total_w * r_yaw
+        )
+
+    return reward
+
+
+# ---------------------------------------------------------------------------
+# Support Contact Quality Bonus (v7.3 Phase 3)
+# ---------------------------------------------------------------------------
+
+def support_contact_quality_bonus(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    support_foot_name: str = "left_ankle_roll_link",
+    # --- Ball contact detection ---
+    ball_sensor_name: str = "soccer_ball_contact",
+    horizontal_force_threshold: float = 10.0,
+    foot_cfg: SceneEntityCfg | None = None,
+    cg_margin: int = 5,
+    # --- Support foot quality ---
+    contact_threshold: float = 20.0,
+    yaw_std: float = 0.6,
+    contact_sensor_name: str = "foot_contact",
+) -> torch.Tensor:
+    """Sparse bonus for support foot quality at the moment of legal contact (v7.3).
+
+    Only fires when ALL of the following are true in a single step:
+      1. CG phase is CG=1 (legal kick window)
+      2. Ball contact is detected this step (new_contact)
+      3. Contact is with the correct foot
+
+    The bonus value is:
+      q_support = support_contact_w * r_yaw
+
+    where:
+      - support_contact_w: 1.0 if support foot has ground contact > threshold
+      - r_yaw: gaussian reward for support foot yaw alignment to kick direction
+
+    This reward cannot create a "don't kick but still collect support reward"
+    local optimum because it is gated on actual ball contact.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    device = env.device
+
+    # ===== Detect legal ball contact (same logic as time_gated_contact) =====
+    _, is_cg1 = _get_cg_phase(command, margin=cg_margin)
+    tracker = _get_kick_tracker(command)
+    event = tracker.detect(command, ball_sensor_name, horizontal_force_threshold)
+
+    reward = torch.zeros(env.num_envs, device=device, dtype=torch.float32)
+    if not torch.any(event.new_contact):
+        return reward
+
+    # ===== Check correct foot =====
+    legal_contact = torch.zeros(env.num_envs, dtype=torch.bool, device=device)
+    if foot_cfg is not None:
+        foot_info = tracker.resolve_contact_foot(command, foot_cfg, event.new_contact)
+        if foot_info.env_ids.numel() > 0:
+            valid_expectation = foot_info.expected >= 0
+            correct = (foot_info.sides == foot_info.expected) & valid_expectation
+            legal_contact[foot_info.env_ids] = correct
+    else:
+        # No foot_cfg → treat all new contacts as correct
+        legal_contact = event.new_contact
+
+    # Gate by CG1
+    legal_contact = legal_contact & is_cg1
+
+    if not torch.any(legal_contact):
+        return reward
+
+    # ===== Compute support foot quality =====
+
+    # --- Support foot ground contact ---
+    robot = command.robot
+    sensors = getattr(env.scene, "sensors", None)
+    contact_sensor = None
+    if sensors is not None:
+        if isinstance(sensors, dict):
+            contact_sensor = sensors.get(contact_sensor_name)
+        else:
+            contact_sensor = getattr(sensors, contact_sensor_name, None)
+
+    if contact_sensor is None:
+        return reward
+
+    # Cache body indices
+    cache_key = f"_support_bonus_cache_{support_foot_name}"
+    if not hasattr(env, cache_key):
+        robot_body_ids = [robot.body_names.index(support_foot_name)]
+        sensor_body_ids, _ = contact_sensor.find_bodies(
+            [support_foot_name], preserve_order=True
+        )
+        cache = {
+            "robot_body_idx": robot_body_ids[0],
+            "sensor_body_idx": sensor_body_ids[0] if len(sensor_body_ids) > 0 else None,
+        }
+        setattr(env, cache_key, cache)
+
+    cache = getattr(env, cache_key)
+    support_body_idx = cache["robot_body_idx"]
+    support_sensor_idx = cache["sensor_body_idx"]
+
+    if support_sensor_idx is None:
+        return reward
+
+    # Ground contact check
+    forces = contact_sensor.data.net_forces_w
+    if forces is not None and forces.numel() > 0:
+        forces = forces.to(device=device)
+        support_force_z = forces[:, support_sensor_idx, 2].clamp(min=0.0)
+    else:
+        support_force_z = torch.zeros(env.num_envs, device=device)
+
+    support_contact_w = (support_force_z > contact_threshold).float()
+
+    # --- Support foot yaw alignment ---
+    ball_pos_w = get_target_point_world(env, command_name).to(device=device)
+    ball_xy = ball_pos_w[:, :2]
+
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is not None:
+        dest_w = command.target_destination_pos + env_origins
+    else:
+        dest_w = command.target_destination_pos
+    dest_xy = dest_w[:, :2]
+
+    kick_dir = dest_xy - ball_xy
+    kick_dir_norm = torch.norm(kick_dir, dim=-1, keepdim=True).clamp(min=1e-6)
+    kick_dir = kick_dir / kick_dir_norm
+
+    support_quat = robot.data.body_quat_w[:, support_body_idx]
+    w, x, y, z = support_quat[:, 0], support_quat[:, 1], support_quat[:, 2], support_quat[:, 3]
+    support_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    desired_yaw = torch.atan2(kick_dir[:, 1], kick_dir[:, 0])
+    yaw_err = support_yaw - desired_yaw
+    yaw_err = torch.atan2(torch.sin(yaw_err), torch.cos(yaw_err))
+    r_yaw = torch.exp(-(yaw_err ** 2) / (yaw_std ** 2))
+
+    # ===== q_support = ground_contact * yaw_quality =====
+    q_support = support_contact_w * r_yaw
+
+    # ===== Sparse bonus: only on legal contact frames =====
+    reward = legal_contact.float() * q_support
+
+    return reward

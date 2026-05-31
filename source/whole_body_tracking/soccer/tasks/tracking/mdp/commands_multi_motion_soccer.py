@@ -25,6 +25,7 @@ from isaaclab.utils.math import (
 )
 
 from .kick_detection import KickContactTracker
+from .event_phase import compute_segment_bounds, compute_event_phase
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -86,6 +87,14 @@ class MultiMotionLoader:
                     label_str = str(raw_label).strip().lower()
                 if label_str in {"left", "right"}:
                     label_value = label_str
+            else:
+                # Fallback to parsing from filename, defaulting to right foot
+                fname = str(motion_file).lower()
+                if "_left" in fname:
+                    label_value = "left"
+                else:
+                    label_value = "right"
+            
             kick_leg_labels.append(label_value)
 
             # Read kick_frame metadata (0-indexed frame where kick contact begins).
@@ -242,6 +251,11 @@ class MotionCommand(CommandTerm):
                                            dtype=torch.long, device=self.device)
         # Initialize per-environment motion lengths.
         self.motion_length[:] = self.motion.file_lengths[self.motion_idx]
+
+        self.event_segment_bounds = torch.zeros(self.num_envs, 4, dtype=torch.float32, device=self.device)
+        self.event_phase_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.event_phase_phi = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
+        self._update_event_segment_bounds(torch.arange(self.num_envs, device=self.device))
 
         self.body_pos_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 3, device=self.device)
         self.body_quat_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 4, device=self.device)
@@ -626,6 +640,10 @@ class MotionCommand(CommandTerm):
             ball_pos = self.soccer_ball_pos.new_empty(3)
             ball_pos[:2] = target_xy
             ball_pos[2] = base_height
+            # Apply ball XY perturbation (uniform random)
+            if self.cfg.ball_xy_perturbation > 0:
+                perturb = (torch.rand(2, device=self.device) - 0.5) * 2 * self.cfg.ball_xy_perturbation
+                ball_pos[:2] += perturb
             self.soccer_ball_pos[env_id] = ball_pos
 
     def _update_target_points(self, env_ids: Sequence[int] | torch.Tensor):
@@ -708,13 +726,47 @@ class MotionCommand(CommandTerm):
         # Sample initial linear velocity based on config.
         if self.cfg.enable_soccer_ball_init_vel:
             lin_vel_range = self.cfg.soccer_ball_init_lin_vel_range or {}
-            lin_vel_ranges = torch.tensor(
-                [lin_vel_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]],
-                device=self.device
-            )  # [3, 2]
-            ball_lin_vel = sample_uniform(
-                lin_vel_ranges[:, 0], lin_vel_ranges[:, 1], (ids.numel(), 3), device=self.device
-            )
+
+            # Directional velocity: ball rolls towards the robot
+            # Speed range along approach direction (negative = towards robot)
+            approach_speed_range = lin_vel_range.get("approach_speed", None)
+            if approach_speed_range is not None:
+                # Compute approach direction per env (ball → robot first frame)
+                approach_dirs = ball_pos.new_zeros(ids.numel(), 2)
+                for j, env_id in enumerate(ids):
+                    midx = int(self.motion_idx[env_id].item())
+                    first_anchor = self.motion.get_first_frame_anchor_pos(
+                        midx, self.motion_anchor_body_index)
+                    ball_xy = self.soccer_ball_pos[env_id, :2]
+                    d = first_anchor[:2] - ball_xy
+                    norm = torch.norm(d).clamp(min=1e-6)
+                    approach_dirs[j] = d / norm
+
+                # Sample speed magnitude
+                lo, hi = approach_speed_range
+                speed = sample_uniform(lo, hi, (ids.numel(),), device=self.device)
+                ball_lin_vel = ball_pos.new_zeros((ids.numel(), 3))
+                ball_lin_vel[:, 0] = approach_dirs[:, 0] * speed
+                ball_lin_vel[:, 1] = approach_dirs[:, 1] * speed
+
+                # Add optional lateral jitter
+                lateral_range = lin_vel_range.get("lateral", (0.0, 0.0))
+                lat_speed = sample_uniform(
+                    lateral_range[0], lateral_range[1],
+                    (ids.numel(),), device=self.device)
+                # Perpendicular to approach direction
+                ball_lin_vel[:, 0] += -approach_dirs[:, 1] * lat_speed
+                ball_lin_vel[:, 1] += approach_dirs[:, 0] * lat_speed
+            else:
+                # Fallback: world-frame XYZ velocity ranges
+                lin_vel_ranges = torch.tensor(
+                    [lin_vel_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]],
+                    device=self.device
+                )  # [3, 2]
+                ball_lin_vel = sample_uniform(
+                    lin_vel_ranges[:, 0], lin_vel_ranges[:, 1],
+                    (ids.numel(), 3), device=self.device
+                )
         else:
             ball_lin_vel = ball_pos.new_zeros((ids.numel(), 3))
         
@@ -723,6 +775,28 @@ class MotionCommand(CommandTerm):
 
         ball_state = torch.cat([ball_pos, ball_quat, ball_lin_vel, ball_ang_vel], dim=-1)
         self.soccer_ball.write_root_state_to_sim(ball_state, env_ids=ids)
+
+    def _update_event_segment_bounds(self, env_ids: torch.Tensor):
+        for i in range(len(env_ids)):
+            env_id = env_ids[i].item()
+            mid = self.motion_idx[env_id].item()
+            kf = self.motion.kick_frames[mid].item()
+            kef = self.motion.kick_end_frames[mid].item()
+            ml = self.motion_length[env_id].item()
+
+            if kf < 0:
+                kf = ml
+                kef = ml
+
+            bounds = compute_segment_bounds(
+                kf, kef, ml,
+                prestrike_duration=20,
+                min_strike_duration=5,
+            )
+            self.event_segment_bounds[env_id, 0] = bounds.approach_end
+            self.event_segment_bounds[env_id, 1] = bounds.prestrike_end
+            self.event_segment_bounds[env_id, 2] = bounds.strike_end
+            self.event_segment_bounds[env_id, 3] = bounds.motion_length
 
     def _resample_command(self, env_ids: Sequence[int]):
         if len(env_ids) == 0:
@@ -793,6 +867,8 @@ class MotionCommand(CommandTerm):
             resample_flags = resample_flags.to(device=self.device, dtype=torch.bool)
         resample_flags[env_ids] = True
         setattr(self._env, flag_name, resample_flags)
+        
+        self._update_event_segment_bounds(env_ids)
 
     # Called every step in the IsaacLab main loop.
     def _update_command(self):
@@ -802,6 +878,7 @@ class MotionCommand(CommandTerm):
         # env_ids = torch.where(self.time_steps >= self.motion.time_step_total)[0]
         env_ids = torch.where(self.time_steps >= self.motion_length)[0]
         self._resample_command(env_ids)
+        self.event_phase_id, self.event_phase_phi = compute_event_phase(self.time_steps, self.event_segment_bounds)
         
         # Update target point each step using current ball position.
         self._update_target_points_from_sim()
@@ -924,3 +1001,6 @@ class MotionCommandCfg(CommandTermCfg):
     # Blind-zone config: ball is invisible when robot-ball (x, y) distance is outside [min, max].
     blind_distance_min_range: tuple[float, float] = (0.3, 0.5)  # Minimum distance sampling range.
     blind_distance_max_range: tuple[float, float] = (1.5, 2.0)  # Maximum distance sampling range.
+
+    # Ball position randomization: uniform ± perturbation in XY (meters).
+    ball_xy_perturbation: float = 0.0

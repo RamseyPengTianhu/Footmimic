@@ -1,0 +1,35 @@
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/home/tianhup/anaconda3/envs/HumanoidSoccer/lib/python3.10/site-packages/gymnasium/envs/registration.py", line 734, in make
+    env = env_creator(**env_spec_kwargs)
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 82, in __init__
+    super().__init__(cfg=cfg)
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/envs/manager_based_env.py", line 81, in __init__
+    cfg.validate()
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/utils/configclass.py", line 287, in _validate
+    raise TypeError(
+TypeError: Missing values detected in object G1EventConditionedKickEnvCfg for the following fields:
+  - commands.motion.motion_files
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/home/tianhup/Desktop/HumanoidSoccer/scripts/rsl_rl/train_v10_ppo.py", line 170, in main
+    env = gym.make(args_cli.task, cfg=env_cfg)
+  File "/home/tianhup/anaconda3/envs/HumanoidSoccer/lib/python3.10/site-packages/gymnasium/envs/registration.py", line 747, in make
+    f"{e} was raised from the environment creator for {env_spec.id} with kwargs ({env_spec_kwargs})"
+  File "/home/tianhup/anaconda3/envs/HumanoidSoccer/lib/python3.10/dataclasses.py", line 239, in wrapper
+    result = user_function(self)
+  File "<string>", line 3, in __repr__
+  File "/home/tianhup/anaconda3/envs/HumanoidSoccer/lib/python3.10/dataclasses.py", line 239, in wrapper
+    result = user_function(self)
+  File "<string>", line 3, in __repr__
+  File "/home/tianhup/anaconda3/envs/HumanoidSoccer/lib/python3.10/dataclasses.py", line 239, in wrapper
+    result = user_function(self)
+  File "<string>", line 3, in __repr__
+AttributeError: 'PolicyCfg' object has no attribute 'command'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

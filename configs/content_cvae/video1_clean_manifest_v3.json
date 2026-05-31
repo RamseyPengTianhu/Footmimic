@@ -1,0 +1,42 @@
+{
+  "schema": "content_cvae_filter_manifest_v1",
+  "notes": [
+    "Third diagnostic-driven clean split for motions/Video1.",
+    "Compared with v2, this only removes one additional training-set follow-through outlier from 5_penalty7.",
+    "Validation-only OOD motions are not removed here; they should be included in final all-data prior training unless visual review rejects them."
+  ],
+  "range_match": "overlap",
+  "exclude_motions": [
+    {
+      "motion": "23_freekick_unitree_g1_right.npz",
+      "reason": "CVAE reconstruction OOD across approach/prestrike/strike/follow."
+    },
+    {
+      "motion": "10_penalty1_unitree_g1_right.npz",
+      "reason": "Dominant OOD source in prestrike and follow after v1 filtering."
+    }
+  ],
+  "exclude_ranges": [
+    {
+      "motion": "13_freekick_unitree_g1_left.npz",
+      "start": 88,
+      "end": 115,
+      "phases": ["follow"],
+      "reason": "Follow-through OOD begins before the v1 cut; extend the removed range earlier."
+    },
+    {
+      "motion": "5_penalty5_unitree_g1_right.npz",
+      "start": 0,
+      "end": 12,
+      "phases": ["approach"],
+      "reason": "Initial approach OOD spike in the first windows."
+    },
+    {
+      "motion": "5_penalty7_unitree_g1_right.npz",
+      "start": 46,
+      "end": 64,
+      "phases": ["follow"],
+      "reason": "Train-split follow-through outlier after v2 filtering."
+    }
+  ]
+}

@@ -172,11 +172,22 @@ python scripts/rsl_rl/play_multi.py --task Tracking-Flat-G1-SoccerDestination-RN
 ```bash
 # 继续训练目前最佳的连续动作极坐标版本 (Task: Anchor-Kick-G1-Soccer-RNN-v0)
 # (基于 run: 2026-04-10_09-47-29_anchor_resume)
-CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/train_multi.py \
+CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/train_multi.py \
     --task Anchor-Kick-G1-Soccer-RNN-v0 \
     --motion_path motions/Video \
     --load_run "2026-04-10_09-47-29_anchor_resume" \
     --resume True --num_envs 2048 --device cuda:0 --headless
+
+
+
+CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/train_multi.py \
+    --task Anchor-CG-Kick-G1-Soccer-RNN-v0 \
+    --motion_path motions/Video \
+    --load_run "2026-04-10_02-11-14" \
+    --checkpoint model_6999.pt \
+    --run_name cg_v73_phase_split \
+    --resume True \
+    --num_envs 2048 --device cuda:0 --headless --max_iterations 20000
 
 # 播放上面训练版本的动作推演
 CUDA_VISIBLE_DEVICES=1 python scripts/rsl_rl/play_multi.py \
@@ -268,7 +279,7 @@ CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/play_multi.py \
     --load_run "2026-04-28_12-15-12_cg_v3_softmask" \
     --checkpoint model_12000.pt \
     --num_envs 1 --device cuda:0 \
-    --headless --dual_view --video_length 600
+    --headless --dual_view --video_length 1000 --path_tracing
 ```
 
 - `--dual_view`: 前后双摄像头分屏，自动跟随机器人
@@ -277,6 +288,15 @@ CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/play_multi.py \
 - 输出：`logs/.../videos/dual_<timestamp>/dual_view_*.mp4`
 
 > ⚠️ 需系统安装 `ffmpeg`。双视角分辨率为 1920×540（左右各 960×540）。
+
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=0 python scripts/rsl_rl/eval_kick_diagnostic.py     --task Anchor-CG-Kick-G1-Soccer-RNN-v0     --motion_path motions/Video     --load_run "2026-05-06_23-52-33_cg_v74_sparse_bonus"     --checkpoint model_26000.pt     --num_envs 16 --eval_episodes 50 --headless
 
 ---
 

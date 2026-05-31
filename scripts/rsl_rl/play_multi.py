@@ -5,6 +5,7 @@
 import argparse
 import sys
 import datetime
+import os
 
 from isaaclab.app import AppLauncher
 
@@ -24,6 +25,18 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--motion_file", type=str, default=None, help="Path to a single motion file. When specified, only this motion is played and exported.")
 parser.add_argument("--motion_path", type=str, default=None, help="The path to the directory containing motion files for random sampling (no export).")
+parser.add_argument("--action_cvae", type=str, default=None, help="Frozen action-CVAE decoder for latent-residual PPO policies.")
+parser.add_argument("--latent_scale", type=float, default=0.75, help="Latent residual scale used by the action-CVAE wrapper.")
+parser.add_argument("--latent_clip", type=float, default=5.0, help="Clamp range for latent residual policy actions.")
+parser.add_argument("--pd_action_clip", type=float, default=0.0, help="Optional clamp range for decoded PD actions; 0 disables clipping.")
+parser.add_argument("--pd_residual_scale", type=float, default=0.0, help="Scale for optional gated PD action residual; 0 disables it.")
+parser.add_argument("--pd_residual_joint_scope", type=str, default="all", help="PD residual joint scope: all, swing_leg, or swing_leg_no_ankle.")
+parser.add_argument("--pd_residual_gate_dist", type=float, default=0.9, help="Swing-foot ball distance where PD residual gate is half-open.")
+parser.add_argument("--pd_residual_gate_temp", type=float, default=0.2, help="Temperature for the PD residual near-ball gate.")
+parser.add_argument("--pd_residual_closing_threshold", type=float, default=0.0, help="Swing-foot closing speed where PD residual gate is half-open.")
+parser.add_argument("--pd_residual_closing_temp", type=float, default=0.5, help="Temperature for the PD residual closing-speed gate.")
+parser.add_argument("--latent_barrier_weight", type=float, default=0.0, help="Reward penalty weight for latent Mahalanobis barrier.")
+parser.add_argument("--latent_barrier_limit", type=float, default=2.5, help="Mahalanobis radius before latent barrier penalty activates.")
 
 parser.add_argument("--export_motion_name", type=str, default=None, help="Select one motion for exporter (required when --motion_file is used).")
 
@@ -38,6 +51,11 @@ if args_cli.video or args_cli.dual_view:
     # Allow headless video recording over SSH.
     if not hasattr(args_cli, 'headless'):
         args_cli.headless = True
+if getattr(args_cli, "headless", False) and "DISPLAY" in os.environ:
+    # In SSH sessions a stale/forwarded DISPLAY can make Isaac's headless
+    # rendering kit choose GLX and fail before the task is even constructed.
+    print(f"[INFO] Headless mode: clearing DISPLAY={os.environ['DISPLAY']!r} before launching Isaac Sim")
+    os.environ.pop("DISPLAY", None)
 
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
@@ -49,7 +67,6 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import gymnasium as gym
-import os
 import glob
 import pathlib
 import torch
@@ -249,7 +266,33 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = multi_agent_to_single_agent(env)
 
     # wrap around environment for rsl-rl
-    env = RslRlVecEnvWrapper(env)
+    if args_cli.action_cvae:
+        from action_cvae_latent_wrapper import ActionCVAELatentRslRlVecEnvWrapper
+
+        env = ActionCVAELatentRslRlVecEnvWrapper(
+            env,
+            action_cvae_path=args_cli.action_cvae,
+            latent_scale=args_cli.latent_scale,
+            latent_clip=args_cli.latent_clip,
+            pd_action_clip=args_cli.pd_action_clip,
+            pd_residual_scale=args_cli.pd_residual_scale,
+            pd_residual_joint_scope=args_cli.pd_residual_joint_scope,
+            pd_residual_gate_dist=args_cli.pd_residual_gate_dist,
+            pd_residual_gate_temp=args_cli.pd_residual_gate_temp,
+            pd_residual_closing_threshold=args_cli.pd_residual_closing_threshold,
+            pd_residual_closing_temp=args_cli.pd_residual_closing_temp,
+            latent_barrier_weight=args_cli.latent_barrier_weight,
+            latent_barrier_limit=args_cli.latent_barrier_limit,
+        )
+        print(
+            f"[INFO] Latent action-CVAE wrapper: obs={env.num_obs}, latent_actions={env.num_actions}, "
+            f"latent_scale={args_cli.latent_scale}, pd_residual_scale={args_cli.pd_residual_scale}, "
+            f"pd_residual_joint_scope={args_cli.pd_residual_joint_scope}, "
+            f"latent_barrier_weight={args_cli.latent_barrier_weight}, "
+            f"latent_barrier_limit={args_cli.latent_barrier_limit}"
+        )
+    else:
+        env = RslRlVecEnvWrapper(env)
 
     # load previously trained model
     ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
@@ -337,32 +380,36 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # breakpoint()
     obs, _ = env.get_observations()
     timestep = 0
-    # simulate environment
-    while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            # agent stepping
-            actions = policy(obs)
-            # env stepping
+    try:
+        # simulate environment
+        while simulation_app.is_running():
+            # run everything in inference mode
+            with torch.inference_mode():
+                # agent stepping
+                actions = policy(obs).clone()
+            # Keep stepping outside inference_mode because wrappers may update
+            # observation-history tensors in-place.
             obs, _, _, _ = env.step(actions)
 
-        # Capture frame for dual-view recording with CG overlay.
+            # Capture frame for dual-view recording with CG overlay.
+            if dual_recorder is not None:
+                overlay = _get_cg_overlay(env, timestep)
+                dual_recorder.capture(overlay_text=overlay)
+
+            if args_cli.video or args_cli.dual_view:
+                timestep += 1
+                # Exit the play loop after recording one video
+                if timestep == args_cli.video_length:
+                    break
+    except KeyboardInterrupt:
+        print(f"[INFO] Interrupted at timestep={timestep}; saving captured frames before exit.")
+    finally:
+        # Save dual-view video, including partial clips after Ctrl-C.
         if dual_recorder is not None:
-            overlay = _get_cg_overlay(env, timestep)
-            dual_recorder.capture(overlay_text=overlay)
+            dual_recorder.save()
 
-        if args_cli.video or args_cli.dual_view:
-            timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
-                break
-
-    # Save dual-view video.
-    if dual_recorder is not None:
-        dual_recorder.save()
-
-    # close the simulator
-    env.close()
+        # close the simulator
+        env.close()
 
 
 if __name__ == "__main__":

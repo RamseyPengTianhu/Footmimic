@@ -1,0 +1,12 @@
+2026-05-14 16:30:15 [4,327ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/home/tianhup/Desktop/HumanoidSoccer/scripts/rsl_rl/train_v10_ppo.py", line 241, in main
+    env = V10RslRlVecEnvWrapper(env)
+  File "/home/tianhup/Desktop/HumanoidSoccer/scripts/rsl_rl/train_v10_ppo.py", line 179, in __init__
+    num_envs=env.num_envs,
+AttributeError: 'OrderEnforcing' object has no attribute 'num_envs'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

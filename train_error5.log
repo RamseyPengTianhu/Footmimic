@@ -1,0 +1,28 @@
+2026-05-14 16:24:03 [4,331ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/home/tianhup/Desktop/HumanoidSoccer/scripts/rsl_rl/train_v10_ppo.py", line 183, in main
+    env = gym.make(args_cli.task, cfg=env_cfg)
+  File "/home/tianhup/anaconda3/envs/HumanoidSoccer/lib/python3.10/site-packages/gymnasium/envs/registration.py", line 734, in make
+    env = env_creator(**env_spec_kwargs)
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 82, in __init__
+    super().__init__(cfg=cfg)
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/envs/manager_based_env.py", line 172, in __init__
+    self.load_managers()
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 118, in load_managers
+    super().load_managers()
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/envs/manager_based_env.py", line 252, in load_managers
+    self.observation_manager = ObservationManager(self.cfg.observations, self)
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/managers/observation_manager.py", line 82, in __init__
+    super().__init__(cfg, env)
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/managers/manager_base.py", line 173, in __init__
+    self._prepare_terms()
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab/isaaclab/managers/observation_manager.py", line 485, in _prepare_terms
+    obs_dims = tuple(term_cfg.func(self._env, **term_cfg.params).shape)
+  File "/home/tianhup/Desktop/HumanoidSoccer/source/whole_body_tracking/soccer/tasks/tracking/mdp/observations_v10.py", line 253, in v10_motor_prior
+    weak_prior_8d = command.event_warped_weak_prior  # [N, 8]
+AttributeError: 'MotionCommand' object has no attribute 'event_warped_weak_prior'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

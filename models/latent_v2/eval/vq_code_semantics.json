@@ -1,0 +1,488 @@
+{
+  "num_episodes": 200,
+  "num_codes": 16,
+  "code_hold": 2,
+  "strike_codes": [],
+  "episodes": [
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        11
+      ],
+      "prior_codes": [
+        8
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        0.91257643699646
+      ],
+      "foot_speed": [
+        0.7430701851844788
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        12
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.2930817604064941
+      ],
+      "foot_speed": [
+        0.7977614402770996
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        11
+      ],
+      "prior_codes": [
+        15
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        1.026465892791748
+      ],
+      "foot_speed": [
+        0.17255175113677979
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        3
+      ],
+      "prior_codes": [
+        15
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        1.2031511068344116
+      ],
+      "foot_speed": [
+        0.5635831952095032
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        11
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.400085210800171
+      ],
+      "foot_speed": [
+        0.5241643786430359
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        15
+      ],
+      "prior_codes": [
+        15
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        1.0715454816818237
+      ],
+      "foot_speed": [
+        0.6141610145568848
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        8
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.2726808786392212
+      ],
+      "foot_speed": [
+        0.7686854600906372
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        15
+      ],
+      "prior_codes": [
+        15
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        0.9390164613723755
+      ],
+      "foot_speed": [
+        0.5539495348930359
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        4
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        1.4349664449691772
+      ],
+      "foot_speed": [
+        0.3267183005809784
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        12
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        1.321679949760437
+      ],
+      "foot_speed": [
+        0.2541281580924988
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        11
+      ],
+      "prior_codes": [
+        3
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        0.9846506118774414
+      ],
+      "foot_speed": [
+        0.49105125665664673
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        12
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.3523327112197876
+      ],
+      "foot_speed": [
+        0.8457760810852051
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        8
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.3532871007919312
+      ],
+      "foot_speed": [
+        0.38510993123054504
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        12
+      ],
+      "prior_codes": [
+        4
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.5468238592147827
+      ],
+      "foot_speed": [
+        0.243962362408638
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        11
+      ],
+      "prior_codes": [
+        15
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        0.9848698377609253
+      ],
+      "foot_speed": [
+        0.5154602527618408
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        12
+      ],
+      "prior_codes": [
+        4
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.302999496459961
+      ],
+      "foot_speed": [
+        0.5475320219993591
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        11
+      ],
+      "prior_codes": [
+        3
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        0.8945022821426392
+      ],
+      "foot_speed": [
+        0.12308625131845474
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        15
+      ],
+      "prior_codes": [
+        15
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        0.8381485342979431
+      ],
+      "foot_speed": [
+        0.40987008810043335
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 0,
+      "motion_name": "hmr4d_1_unitree_g1_compatible_right",
+      "post_codes": [
+        4
+      ],
+      "prior_codes": [
+        4
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        0
+      ],
+      "ball_dist": [
+        1.322522521018982
+      ],
+      "foot_speed": [
+        0.33858054876327515
+      ],
+      "terminated": true,
+      "length": 1
+    },
+    {
+      "motion_idx": 1,
+      "motion_name": "hmr4d_4_unitree_g1_compatible_right",
+      "post_codes": [
+        12
+      ],
+      "prior_codes": [
+        11
+      ],
+      "ref_phases": [
+        0
+      ],
+      "geo_phases": [
+        -1
+      ],
+      "ball_dist": [
+        1.182900071144104
+      ],
+      "foot_speed": [
+        0.41839003562927246
+      ],
+      "terminated": true,
+      "length": 1
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+2026-05-14 16:33:21 [4,282ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/home/tianhup/Desktop/IsaacLab_Soccer/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/home/tianhup/Desktop/HumanoidSoccer/scripts/rsl_rl/train_v10_ppo.py", line 240, in main
+    env = V10RslRlVecEnvWrapper(env)
+  File "/home/tianhup/Desktop/HumanoidSoccer/scripts/rsl_rl/train_v10_ppo.py", line 187, in __init__
+    self.observation_space = Box(low=-np.inf, high=np.inf, shape=(454,))
+AttributeError: can't set attribute 'observation_space'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

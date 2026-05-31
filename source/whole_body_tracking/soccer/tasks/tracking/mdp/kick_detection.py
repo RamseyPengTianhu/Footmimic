@@ -90,6 +90,9 @@ class KickContactTracker:
         new_contact = (~contact_awarded) & kick_detected
         if torch.any(new_contact):
             contact_awarded[new_contact] = True
+            # Record the frame when contact first happened
+            contact_frame = self._get_or_init_float_tensor("contact_frame", default=-1.0)
+            contact_frame[new_contact] = command.time_steps[new_contact].float()
         self._update_detection_state(new_contact)
 
         event = KickContactEvent(new_contact, kick_detected, peak_force, force_norm)
@@ -107,6 +110,10 @@ class KickContactTracker:
     def get_contact_awarded(self) -> torch.Tensor:
         """Return kick status: False means not kicked yet, True means kicked."""
         return self._get_or_init_bool_tensor("target_contact_awarded", default=False)
+
+    def get_contact_frame(self) -> torch.Tensor:
+        """Return the time_step at which contact was first awarded. -1 if no contact yet."""
+        return self._get_or_init_float_tensor("contact_frame", default=-1.0)
 
     def freeze_proximity_reward(self, env_ids: torch.Tensor, reward_values: torch.Tensor):
         """Freeze proximity reward values at the kick-contact moment."""
@@ -213,6 +220,10 @@ class KickContactTracker:
         # Reset frozen proximity reward.
         frozen_proximity = self._get_or_init_float_tensor("frozen_proximity_reward", default=0.0)
         frozen_proximity[resample_flags] = 0.0
+
+        # Reset contact frame.
+        contact_frame = self._get_or_init_float_tensor("contact_frame", default=-1.0)
+        contact_frame[resample_flags] = -1.0
         
         # Reset reward timers to avoid stale window logic after resampling.
         self._reset_reward_timers(resample_flags)
@@ -222,7 +233,26 @@ class KickContactTracker:
 
     def _reset_reward_timers(self, resample_flags: torch.Tensor):
         """Reset reward timer states for environments that have been resampled."""
-        timer_suffixes = ["dir_align_timer", "dir_align_prev", "speed_timer", "speed_prev", "z_speed_timer", "z_speed_prev"]
+        timer_suffixes = [
+            "dir_align_timer",
+            "dir_align_prev",
+            "speed_timer",
+            "speed_prev",
+            "z_speed_timer",
+            "z_speed_prev",
+            "v36b_speed_timer",
+            "v36b_speed_quality",
+            "v36b_dir_timer",
+            "v36b_dir_quality",
+            "v36b_empty_swing_seen",
+            "v36b_attempt_started",
+            "v36b_attempt_hit",
+            "v36b_attempt_missed",
+            "v36b_late_fallback",
+            "v36b_attempt_miss_awarded",
+            "v36b_attempt_frame",
+            "v36b_attempt_dist_xy",
+        ]
         for suffix in timer_suffixes:
             timer_name = f"_{self._state_prefix}_{suffix}"
             timer = getattr(self._env, timer_name, None)

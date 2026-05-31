@@ -1,0 +1,35 @@
+{
+  "schema": "content_cvae_filter_manifest_v1",
+  "notes": [
+    "Second diagnostic-driven clean split for motions/Video1.",
+    "Compared with video1_clean_manifest.json, this version removes 10_penalty1 entirely because the clean-local CVAE still finds large OOD errors in both prestrike and follow.",
+    "Frame ranges use [start, end) indices. Default range matching is overlap."
+  ],
+  "range_match": "overlap",
+  "exclude_motions": [
+    {
+      "motion": "23_freekick_unitree_g1_right.npz",
+      "reason": "CVAE reconstruction OOD across approach/prestrike/strike/follow."
+    },
+    {
+      "motion": "10_penalty1_unitree_g1_right.npz",
+      "reason": "After v1 filtering, this motion remains dominant OOD source in prestrike and follow."
+    }
+  ],
+  "exclude_ranges": [
+    {
+      "motion": "13_freekick_unitree_g1_left.npz",
+      "start": 88,
+      "end": 115,
+      "phases": ["follow"],
+      "reason": "Follow-through OOD begins before the v1 cut; extend the removed range earlier."
+    },
+    {
+      "motion": "5_penalty5_unitree_g1_right.npz",
+      "start": 0,
+      "end": 12,
+      "phases": ["approach"],
+      "reason": "Initial approach OOD spike in the first windows."
+    }
+  ]
+}
