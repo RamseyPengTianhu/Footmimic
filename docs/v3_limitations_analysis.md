@@ -814,3 +814,77 @@ GRU(input=125D, hidden=128, num_layers=1)
 | `online_distill_v10_phase26.pt` | V10 26D + alpha_prior (best) | **66%** | **50%** |
 | `online_distill_v10_phase26_pdagger.pt` | V10 26D + Prior DAgger | ~58% | ~72% |
 | `model_2000.pt` (Stage 4) | PPO 99D, full-obs decoder | 82.5% Clean | 1.0% |
+
+
+---
+
+## 9. Stage C: Categorical PPO 与 Ref-Free Termination 突破
+
+> **目标**：解决 Continuous PPO（Action Repeat）导致的 VQ Code 模糊选择问题，并彻底消除 Reference 泄漏导致的错误终止。
+
+### 9.1 从 Gaussian PPO 到 Categorical PPO
+
+在 V2 (Action Repeat) 实验中，使用 Continuous PPO 预测 VQ Code 的权重：
+- **问题 (Code Hold/Averaging)**：由于 Gaussian 策略的连续性，模型难以做出非连续的突变决策，导致动作混杂，Fallback（补射）率高达 11%。
+- **对策 (Categorical PPO)**：将 PPO 改为输出 `K=16` 的 logits（与 Markov Prior 提供的 16D prior logits 叠加 `combined = prior_logits + scale * residual_logits`），用 Categorical Distribution 进行采样。
+- **成效**：Late/Fallback 率从 11% 暴降至 **3%**，动作干净果断（Clean/Attempt 达 73%）。但策略变得过于保守，No-Attempt 率高达 48%。
+
+### 9.2 No-Attempt 诊断与 Termination 破局
+
+为解决 Categorical PPO "不敢出脚" (No-Attempt=52%) 的问题，我们引入了基于纯空间几何的 `eval_kick_attempt_diagnostic` 工具。
+
+**诊断发现**：
+- **100% 的 No-Attempt** 都是在尚未出脚前（约 46 步，不到 1 秒）被环境强制 Terminate。
+- **根因分析**：环境遗留了 `ee_body_pos` 和 `anchor_pos_z` 这些 **Reference-based Terminations**（如果真实姿态与底层的 Motion Reference 偏差 >0.25m 则判定失败）。对于一个追求自由决策（Ref-Free）的 High-Level PPO 而言，偏离参考轨迹是不可避免且被鼓励的，导致无差别误杀。
+
+### 9.3 最终结果：禁用 Ref-based Terminations
+
+我们在环境与评估中增加了 `--disable_ref_terminations` 选项。
+
+| 指标 | 存在 Ref Termination | 禁用 Ref Termination |
+|---|:---:|:---:|
+| **Att% (尝试率)** | 48% | **100%** |
+| **Clean% (干净命中)** | 45% | **94%** |
+| **NoAtt% (未出脚)** | 52% | **0%** |
+| Late% (补射) | 0% | 5% |
+| Term% (意外倒地) | 64% | 6% |
+| **Motion 4 Clean** | 54% | **100%** |
+
+**阶段性结论**：`Ref-Free High-Level Selector + Ref-Conditioned Low-Level Decoder` 的分层框架被彻底验证有效。高层 Categorical PPO 大脑可以仅仅依靠球脚空间几何特征（task_features），在离散的 VQ 动作库中做出完美的组合决策（94% Clean Rate）。
+
+### 9.4 泛化性验证与同口径对比 (Ball Perturbation & Old Models)
+
+为了证明高层 Selector 不是简单地 "死记硬背" Reference Timing（固定帧起脚），我们引入了 `ball_xy_perturb` 进行球面扰动，并对被误杀的旧模型进行了**同口径重评**（去除了 ref_termination）。
+
+**1. 泛化性极强（±0.3m 扰动几乎不掉点）**
+| Ball Perturb | Clean% | Late% | NoAtt% | Att% | BSpd | DirA | M4 Clean |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| ±0.0m | 94% | 5% | 0% | 100% | 7.5 | 1.00 | 100% |
+| ±0.1m | 96% | 4% | 0% | 100% | 7.5 | 1.00 | 100% |
+| ±0.2m | 90% | 8% | 2% | 98% | 7.5 | 1.00 | 96% |
+| **±0.3m** | **93%** | **6%** | **0%** | **100%** | **7.4** | **1.00** | **99%** |
+*结论：球偏了 30cm（接近一个脚掌长度），策略依然能找到球并精准踢出，证明高层确实在利用 ball-foot relation 做闭环离散选择。*
+
+**2. 同口径去 Termination 对比 (Categorical 优势明显)**
+| 方法 (去 Ref Term) | Clean% | Late% | NoAtt% | Att% | BSpd |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Categorical PPO** | **94%** | **5%** | **0%** | 100% | 7.5 |
+| Gaussian V2 | 60% | 40% | 0% | 100% | 8.1 |
+| VQ+Residual | 60% | 40% | 0% | 100% | 8.1 |
+*结论：旧模型以前的 NoAtt=19% 完全是被环境误杀（去约束后 Att 全满）。但连续的 Gaussian/Residual 犹豫不决（Code Averaging），导致第一脚往往踢空（Late 补射高达 40%）。Categorical 离散决策完美解决了犹豫问题。*
+
+---
+
+## 10. 未来 Roadmap：通向完全 Deployable 的 Ref-Free 系统
+
+虽然高层大脑（Selector）已经 Ref-Free，但底层身体（Decoder）目前仍然依赖 `MotionCommand` 提供的 phase/reference scaffold。下一步核心是清缴技术债，剥离底层依赖：
+
+1. **固化主线 Baseline**：以 `catppo_norefterm` 作为基准标杆（Strict Clean 94%，±0.3m Perturb 93%）。
+2. **One-shot Attempt 改造（处理残余的 5-13% Late）**：
+   - 改革 RL Reward & Termination：Attempt 触发后只给 18 帧机会，踢中给 reward 并 success terminate，没踢中直接 failure terminate。
+   - 不允许靠第二脚补射拿 reward，让训练目标与 Diagnostic strict hit 彻底一致。
+3. **更系统的 Perturbation 扫雷**：拆分测前后 X 偏移、左右 Y 偏移、初始站位、目标朝向的变化，找出策略盲区。
+4. **终极挑战：No-Phase / No-Reference Decoder**：
+   - 重训 Decoder：`decoder(proprio/history + ball-foot features + z/code) -> action`
+   - 彻底拔掉内部对 `phase`、`kick_flag` 和外部 `motion reference` 的依赖。
+   - 验证：如果 No-Phase VQ 的 Post(Quant) 还能保持高表现，整个双层架构即大功告成，达到 Real-World Deployable 状态。
