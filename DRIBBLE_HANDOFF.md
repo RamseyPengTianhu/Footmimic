@@ -62,9 +62,9 @@ Reference 2 的标注 → 球节点合成 → clean node 编译 → replay 视�
 | 内容 | 路径 |
 |---|---|
 | Ref 1 训练 npz | `motions/master-aligned/master_001675_001884_unitree_g1.npz` |
-| Ref 2 训练 npz(含球轨迹) | `motions/master-annotated-003178-nodes/master_003178_003326_unitree_g1.npz` |
+| Ref 2 训练 npz(含球轨迹) | `motions/master-annotated-003178-grounded/master_003178_003326_unitree_g1.npz` |
 | Ref 2 无节点版 | `motions/master-annotated-003178/` |
-| Ref 2 clean nodes | `motions/contact-nodes-clean-v0-003178/master_003178_003326_unitree_g1.nodes.json`(另有 `.phase_audit.json`、`summary.json`) |
+| Ref 2 clean nodes | `motions/contact-nodes-clean-v0-003178-grounded/master_003178_003326_unitree_g1.nodes.json`(另有 `.phase_audit.json`、`summary.json`) |
 | Ref 2 node replay 视频 | `logs/reference_replay/master_003178_new_nodes/master_003178_003326_unitree_g1.mp4` |
 | 其他试验轨迹变体 | `motions/master-aligned-{outside-toe,toe-inside-forward*}/`(几何标定实验,非正式) |
 
@@ -206,7 +206,15 @@ D1 现象:C2 起点所有 episode 恰好在第 43 步(第一个窗口 +grace 过
 - 静态测试整体命中率 8.4%,事件 3–7 在整个网格内命中为 0。
 - 合成锚点与生产几何一致(误差 0),仿真与 npz 的踝位置只差 0.2 cm:问题在**动作数据的竖直漂移**,不是合成/仿真流程错误。
 - 修复路径(未做):`scripts/dribble/ground_motion_ref.py`(每帧让最低脚底回到地面,整体 Z 平移,水平不变)→ 用 Reference 1 同样的合成参数重新合成球 → 重编译 nodes → 重跑静态测试 → 重新核对标注帧(漂移被去掉后,标注帧是否对应脚真的靠近球)。
-- 在此之前,**D1/D2 只应使用 Reference 1**。
+- **已修复(2026-10-14)**:新增 `motions/master-annotated-003178-grounded/`(`ground_motion_ref.py` 接地 + 用 Reference 1 的合成参数重新合成)与
+  `motions/contact-nodes-clean-v0-003178-grounded/`(重新编译的 nodes)。原 `master-annotated-003178*` 目录**废弃,不要再用**。
+  - 接地后:骨盆 78–82 cm、最低脚 4–5 cm(与 Reference 1 一致);标注帧右踝 12–15 cm(仅 ev6 为 23 cm),踝-球 3D 距离 14–20 cm(Reference 1 为 15–18 cm)。
+  - 静态测试:网格命中率 31.9%(Reference 1 为 32.8%,漂移版为 8.4%);名义球位置在 ±2 帧内命中的事件 7/8(Reference 1 为 12/16)。
+  - 节点 z 稳定在 -0.64…-0.72(漂移版漂到 -0.91)。
+  - 仍有的规律:inside 事件的名义球多在 +1/+2 帧才命中(标注偏早 1–2 帧),outside 事件多在 -1 帧命中(标注偏晚 1 帧);Reference 1 类似。
+- **Reference 1 的合成参数(反推,锚点误差 0)**:`--outside_foot_contact_x 0.10`,其余默认(`inside_foot_contact_x 0.10`、`outside_lateral_inset 0.0`)。
+  因此审计脚本需带 `--outside_foot_contact_x 0.10` 才会对 Reference 1 PASS。
+- `phase_audit` 的 30.6% 在接地后不变(它只看关节/twist,与高度无关),该指标缺陷见 D0-4。
 
 ### 下一步:D1
 - 用 `shell/clean_v0_dribbling_train.sh stage2` 以 `model_6999.pt` 起步,先用 `Tracking-Flat-G1-CleanV0-Stage2-C2-RNN`(设 `S2_TASK`)小规模探针,两条 reference 各一次

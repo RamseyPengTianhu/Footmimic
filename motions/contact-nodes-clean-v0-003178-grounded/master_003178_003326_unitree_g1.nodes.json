@@ -1,0 +1,184 @@
+{
+  "schema_version": "clean_dribble_v0",
+  "source": "motions/master-annotated-003178-grounded/master_003178_003326_unitree_g1.npz",
+  "fps": 50,
+  "num_frames": 245,
+  "pelvis_index": 0,
+  "node_frame": "reference_pelvis_heading",
+  "distance_dimensions": "xy",
+  "events": [
+    {
+      "event_id": 0,
+      "start_frame": 24,
+      "end_frame": 28,
+      "foot_id": 1,
+      "surface_id": 0,
+      "foot": "right",
+      "surface": "inside_instep",
+      "node_xy": [
+        0.14941031166505384,
+        -0.2836800230188947
+      ],
+      "node_z": -0.6768381744623184,
+      "next_event_id": 1,
+      "next_node_xy": [
+        0.283598676813762,
+        -0.13189978220772797
+      ],
+      "next_node_z": -0.6543718725442886,
+      "time_to_next_contact_frames": 28,
+      "phase": 0.09836065573770492
+    },
+    {
+      "event_id": 1,
+      "start_frame": 52,
+      "end_frame": 58,
+      "foot_id": 1,
+      "surface_id": 1,
+      "foot": "right",
+      "surface": "outside_instep",
+      "node_xy": [
+        0.283598676813762,
+        -0.13189978220772797
+      ],
+      "node_z": -0.6543718725442886,
+      "next_event_id": 2,
+      "next_node_xy": [
+        0.2684398801066327,
+        -0.33759357036818544
+      ],
+      "next_node_z": -0.665570393204689,
+      "time_to_next_contact_frames": 29,
+      "phase": 0.21311475409836064
+    },
+    {
+      "event_id": 2,
+      "start_frame": 81,
+      "end_frame": 86,
+      "foot_id": 1,
+      "surface_id": 0,
+      "foot": "right",
+      "surface": "inside_instep",
+      "node_xy": [
+        0.2684398801066327,
+        -0.33759357036818544
+      ],
+      "node_z": -0.665570393204689,
+      "next_event_id": 3,
+      "next_node_xy": [
+        0.10376430297847906,
+        -0.15533807479694664
+      ],
+      "next_node_z": -0.6365538388490677,
+      "time_to_next_contact_frames": 29,
+      "phase": 0.3319672131147541
+    },
+    {
+      "event_id": 3,
+      "start_frame": 110,
+      "end_frame": 115,
+      "foot_id": 1,
+      "surface_id": 1,
+      "foot": "right",
+      "surface": "outside_instep",
+      "node_xy": [
+        0.10376430297847906,
+        -0.15533807479694664
+      ],
+      "node_z": -0.6365538388490677,
+      "next_event_id": 4,
+      "next_node_xy": [
+        0.23377564996409708,
+        -0.2598071066746639
+      ],
+      "next_node_z": -0.6680670529603958,
+      "time_to_next_contact_frames": 31,
+      "phase": 0.45081967213114754
+    },
+    {
+      "event_id": 4,
+      "start_frame": 141,
+      "end_frame": 146,
+      "foot_id": 1,
+      "surface_id": 0,
+      "foot": "right",
+      "surface": "inside_instep",
+      "node_xy": [
+        0.23377564996409708,
+        -0.2598071066746639
+      ],
+      "node_z": -0.6680670529603958,
+      "next_event_id": 5,
+      "next_node_xy": [
+        0.22746340963205827,
+        -0.09206778563240761
+      ],
+      "next_node_z": -0.6477288752794266,
+      "time_to_next_contact_frames": 31,
+      "phase": 0.5778688524590164
+    },
+    {
+      "event_id": 5,
+      "start_frame": 172,
+      "end_frame": 176,
+      "foot_id": 1,
+      "surface_id": 1,
+      "foot": "right",
+      "surface": "outside_instep",
+      "node_xy": [
+        0.22746340963205827,
+        -0.09206778563240761
+      ],
+      "node_z": -0.6477288752794266,
+      "next_event_id": 6,
+      "next_node_xy": [
+        0.1706065742950295,
+        -0.39320521349698523
+      ],
+      "next_node_z": -0.7227630168199539,
+      "time_to_next_contact_frames": 30,
+      "phase": 0.7049180327868853
+    },
+    {
+      "event_id": 6,
+      "start_frame": 202,
+      "end_frame": 209,
+      "foot_id": 1,
+      "surface_id": 0,
+      "foot": "right",
+      "surface": "inside_instep",
+      "node_xy": [
+        0.1706065742950295,
+        -0.39320521349698523
+      ],
+      "node_z": -0.7227630168199539,
+      "next_event_id": 7,
+      "next_node_xy": [
+        0.05362417023593746,
+        -0.08598530272718194
+      ],
+      "next_node_z": -0.672036662697792,
+      "time_to_next_contact_frames": 30,
+      "phase": 0.8278688524590164
+    },
+    {
+      "event_id": 7,
+      "start_frame": 232,
+      "end_frame": 236,
+      "foot_id": 1,
+      "surface_id": 1,
+      "foot": "right",
+      "surface": "outside_instep",
+      "node_xy": [
+        0.05362417023593746,
+        -0.08598530272718194
+      ],
+      "node_z": -0.672036662697792,
+      "next_event_id": -1,
+      "next_node_xy": null,
+      "next_node_z": null,
+      "time_to_next_contact_frames": null,
+      "phase": 0.9508196721311475
+    }
+  ]
+}

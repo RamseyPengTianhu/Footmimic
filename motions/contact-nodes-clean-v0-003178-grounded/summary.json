@@ -1,0 +1,9 @@
+[
+  {
+    "source": "motions/master-annotated-003178-grounded/master_003178_003326_unitree_g1.npz",
+    "num_frames": 245,
+    "num_events": 8,
+    "nearest_intent_mismatch_count": 75,
+    "nearest_intent_mismatch_rate": 0.30612244897959184
+  }
+]
