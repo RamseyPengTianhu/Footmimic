@@ -106,7 +106,8 @@ are retained, but the S1 optimizer state is not loaded and Gaussian exploration
 is reset to standard deviation 0.40. Resuming an S2 checkpoint retains its
 optimizer, learned exploration, and curriculum state.
 
-The checked-in `master-single` clip intentionally labels the right foot only:
+The checked-in `master-aligned` clip is regenerated with the current contact
+geometry and intentionally labels the right foot only:
 S2 learns that foot's inside/outside contacts, not left/right-foot alternation.
 
 Use `--show_s2_contact_regions` during playback to display the frozen reference
@@ -137,7 +138,7 @@ supervision was the only independent variable.
 
 The S2 contact-curriculum task requires valid `dribble_cg_contact`,
 `dribble_cg_foot`, `dribble_cg_surface`, and `ball_pos_w` arrays. At this
-revision the compatible checked-in bank is `motions/master-single`; passing a
+revision the compatible checked-in bank is `motions/master-aligned`; passing a
 legacy mixed bank fails during environment creation instead of training with
 unknown side labels.
 

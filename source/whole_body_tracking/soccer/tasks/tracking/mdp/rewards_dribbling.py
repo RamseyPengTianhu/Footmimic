@@ -98,6 +98,31 @@ def soccer_ball_contact_force_magnitude(
     return torch.norm(f, dim=-1)
 
 
+def dribbling_s2_excess_contact_force_penalty(
+    env: ManagerBasedRLEnv,
+    ball_sensor_name: str = "soccer_ball_contact",
+    start_force: float = 150.0,
+    full_force: float = 250.0,
+    max_penalty: float = 6.0,
+) -> torch.Tensor:
+    """Increasing penalty for excessive horizontal robot-ball impact.
+
+    Ball-ground support is excluded by using the ball sensor's horizontal net
+    force.  Normal soft touches below ``start_force`` are free; the penalty
+    is one at ``full_force`` and then continues to increase (up to
+    ``max_penalty``).  This keeps a 700-N kick materially worse than a
+    250-N kick instead of treating both as the same violation.
+    """
+    if full_force <= start_force:
+        raise ValueError("full_force must exceed start_force")
+    force = soccer_ball_contact_force_magnitude(env, ball_sensor_name)
+    return torch.clamp(
+        (force - float(start_force)) / (float(full_force) - float(start_force)),
+        min=0.0,
+        max=max(1.0, float(max_penalty)),
+    )
+
+
 def _dribbling_sim_contact(
     env: ManagerBasedRLEnv,
     ball_sensor_name: str,
@@ -502,13 +527,17 @@ def _identify_contact_body(
     ball_sensor_name: str,
     all_body_cfg: SceneEntityCfg,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Identify which robot body is closest to the ball when contact occurs.
+    """Identify the contacting foot from the ball sensor's filtered force matrix.
 
     Returns:
         has_contact: (N,) bool — whether ball has non-zero contact force
         contact_force_mag: (N,) float — force magnitude on ball
-        closest_body_idx: (N,) long — index into all_body_cfg.body_names
-                                       of the body closest to ball
+        closest_body_idx: (N,) long — index into ``all_body_cfg.body_names``.
+
+    The S2 sensor filters the ball against the two ankle links in the same
+    order as the leading entries of ``all_body_cfg``.  This makes a contact a
+    real ball-foot collision.  The former unfiltered XY-force + nearest-body
+    heuristic could classify ball-ground friction as a foot touch.
     """
     device = env.device
     num_envs = env.num_envs
@@ -517,10 +546,40 @@ def _identify_contact_body(
     has_contact = torch.zeros(num_envs, dtype=torch.bool, device=device)
     closest_body_idx = torch.zeros(num_envs, dtype=torch.long, device=device)
 
+    sensor = env.scene.sensors[ball_sensor_name]
+    force_history = getattr(sensor.data, "force_matrix_w_history", None)
+    if isinstance(force_history, torch.Tensor) and force_history.ndim == 5:
+        # (env, history, ball_body=1, filtered_robot_body, xyz)
+        filtered_force = force_history[:, :, 0]
+        force_magnitude = torch.linalg.vector_norm(filtered_force, dim=-1)
+        flat_magnitude = force_magnitude.reshape(num_envs, -1)
+        contact_force_mag, flat_index = torch.max(flat_magnitude, dim=-1)
+        filter_count = max(1, filtered_force.shape[2])
+        closest_body_idx = flat_index % filter_count
+        # Filtered PhysX contact-force entries are exactly zero when the pair
+        # is not touching.  Do not insert a hand-tuned force threshold into
+        # the definition of a labelled contact.
+        has_contact = contact_force_mag > 0.0
+        closest_body_idx = torch.where(
+            has_contact, closest_body_idx, torch.zeros_like(closest_body_idx)
+        )
+        return has_contact, contact_force_mag, closest_body_idx
+
+    force_matrix = getattr(sensor.data, "force_matrix_w", None)
+    if isinstance(force_matrix, torch.Tensor) and force_matrix.ndim == 4:
+        filtered_force = force_matrix[:, 0]
+        force_magnitude = torch.linalg.vector_norm(filtered_force, dim=-1)
+        contact_force_mag, closest_body_idx = torch.max(force_magnitude, dim=-1)
+        has_contact = contact_force_mag > 0.0
+        closest_body_idx = torch.where(
+            has_contact, closest_body_idx, torch.zeros_like(closest_body_idx)
+        )
+        return has_contact, contact_force_mag, closest_body_idx
+
+    # Compatibility fallback for tasks that do not configure contact filters.
     force_vec = soccer_ball_contact_net_force_w(env, ball_sensor_name)
-    # Robot-foot contact appears in XY; ball-on-ground support is mostly Z.
     force_mag = torch.norm(force_vec[:, :2], dim=-1)
-    has_contact = force_mag > 1.0  # minimal threshold to filter sensor noise
+    has_contact = force_mag > 0.0
     contact_force_mag = force_mag
 
     if not torch.any(has_contact):
@@ -743,9 +802,18 @@ def _dribbling_s2_proximity_geometry(
         expected_surface == 0, medial_lateral, -medial_lateral
     )
     if target_side_enabled:
-        side_error = torch.relu(float(side_deadzone) - signed_lateral)
-        side_correct = signed_lateral >= float(side_deadzone)
-        side_wrong = signed_lateral <= -float(side_deadzone)
+        # The annotation tells us only which side of the foot owns the touch;
+        # it does not provide a calibrated lateral clearance.  With a zero
+        # dead-zone, use the sign itself as the categorical label and retain
+        # only continuous wrong-side distance for shaping/telemetry.
+        if float(side_deadzone) <= 0.0:
+            side_error = torch.relu(-signed_lateral)
+            side_correct = signed_lateral >= 0.0
+            side_wrong = signed_lateral < 0.0
+        else:
+            side_error = torch.relu(float(side_deadzone) - signed_lateral)
+            side_correct = signed_lateral >= float(side_deadzone)
+            side_wrong = signed_lateral <= -float(side_deadzone)
     else:
         side_error = torch.zeros_like(lateral)
         side_correct = torch.abs(lateral) >= float(side_deadzone)
@@ -759,6 +827,7 @@ def _dribbling_s2_proximity_geometry(
         "medial_lateral": medial_lateral,
         "side_correct": side_correct,
         "side_wrong": side_wrong,
+        "side_error": side_error,
     }
 
 
@@ -866,6 +935,14 @@ def dribbling_s2_contact_event_state(
     missed_contact_grace_steps: int = 3,
     approach_distance_std: float = 0.40,
     approach_progress_max: float = 4.0,
+    anchor_approach_duration: float = 0.20,
+    anchor_approach_local_scales: tuple[float, float, float] = (0.126, 0.126, 0.066),
+    anchor_approach_progress_max: float = 4.0,
+    contact_region_approach_duration: float = 0.20,
+    contact_region_progress_max: float = 4.0,
+    contact_region_arrival_std: float = 0.02,
+    coarse_approach_duration: float = 0.20,
+    coarse_approach_progress_max: float = 4.0,
     release_window_steps: int = 8,
     release_speed_lower_ratio: float = 0.65,
     release_speed_upper_ratio: float = 1.35,
@@ -875,8 +952,20 @@ def dribbling_s2_contact_event_state(
     release_separation_min: float = 0.14,
     release_separation_full: float = 0.22,
     release_quality_threshold: float = 0.50,
+    release_v2_quality_threshold: float = 0.05,
     release_min_target_distance: float = 0.05,
+    release_arrival_progress_max: float = 4.0,
     acquisition_min_history_steps: int = 20,
+    contact_anchor_std: float | None = None,
+    contact_anchor_max_distance: float | None = None,
+    contact_anchor_local_sigmas: tuple[float, float, float] | None = None,
+    contact_anchor_quality_min: float | None = None,
+    contact_onset_early_grace_steps: int | None = None,
+    contact_release_no_force_steps: int = 3,
+    pair_terminal_contact_region_max_distance: float | None = None,
+    coarse_contact_longitudinal_min: float | None = 0.0,
+    coarse_contact_longitudinal_max: float | None = 0.30,
+    relative_node_targets: bool = False,
 ) -> dict[str, torch.Tensor]:
     """Evaluate S2 approach, contact, release, and diagnostics once per step."""
     if release_window_steps <= 0:
@@ -899,8 +988,18 @@ def dribbling_s2_contact_event_state(
         return {
             "contact_window": false,
             "approach_progress": zero,
+            "coarse_contact_approach": zero,
+            "anchor_approach_progress_v2": zero,
+            "contact_region_progress_v3": zero,
+            "contact_region_arrival": zero,
+            "contact_region_distance": zero,
+            "nearest_region_point_id": torch.full_like(zero, -1, dtype=torch.long),
+            "nearest_region_point_timing": torch.full_like(zero, -1, dtype=torch.long),
             "contact_proximity": zero,
             "target_region_distance": zero,
+            "contact_anchor_distance": zero,
+            "contact_anchor_quality": zero,
+            "contact_anchor_arrival": zero,
             "physical_foot_ball_distance": zero,
             "touch_occurrence": false,
             "immediate_contact": false,
@@ -912,11 +1011,45 @@ def dribbling_s2_contact_event_state(
             "wrong_side": false,
             "premature_contact": false,
             "invalid_body_contact": false,
+            "out_of_sequence_contact": false,
+            "sequence_eligible": false,
+            "sequence_cursor": torch.full_like(zero, -1, dtype=torch.long),
             "nonfoot_contact_penalty": zero,
             "wrong_foot_contact_penalty": zero,
             "premature_contact_penalty": zero,
             "missed_valid_contact": false,
             "release_pending": false,
+            "release_arrival_progress": zero,
+            "terminal_release": false,
+            "terminal_transition_window": false,
+            "terminal_progress_raw_rate": zero,
+            "terminal_progress_clipped_rate": zero,
+            "terminal_progress_positive_rate": zero,
+            "terminal_progress_negative_rate": zero,
+            "terminal_transition_valid": false,
+            "terminal_transition_success": false,
+            "terminal_transition_distance": zero,
+            "terminal_transition_start_distance": zero,
+            "terminal_transition_end_distance": zero,
+            "terminal_transition_net_progress": zero,
+            "terminal_tracking_quality": zero,
+            "terminal_tracking_pulse": zero,
+            "terminal_window_position_outcome": zero,
+            "window_outcome_active": false,
+            "window_outcome_source_event_id": torch.full_like(zero, -1, dtype=torch.long),
+            "window_outcome_target_event_id": torch.full_like(zero, -1, dtype=torch.long),
+            "window_outcome_candidate_frame": torch.full_like(zero, -1, dtype=torch.long),
+            "window_outcome_start_distance": zero,
+            "window_outcome_score_sum": zero,
+            "window_outcome_sample_count": zero,
+            "window_outcome_score_average": zero,
+            "window_outcome_score_end": zero,
+            "window_outcome_settlement_quality": zero,
+            "window_outcome_settlement_pulse": zero,
+            "window_outcome_pulse": zero,
+            "window_outcome_emitted": false,
+            "window_outcome_aborted_ball_lost": false,
+            "window_outcome_aborted_other": false,
             "release_actual_touch_frame": torch.full_like(zero, -1, dtype=torch.long),
             "release_next_anchor_w": torch.zeros(env.num_envs, 3, device=env.device),
             "release_remaining_time": zero,
@@ -928,9 +1061,13 @@ def dribbling_s2_contact_event_state(
             "release_speed_ratio": zero,
             "release_separation_score": zero,
             "release_score": zero,
+            "release_v2_score": zero,
             "release_quality_pass": false,
+            "release_v2_quality_pass": false,
             "quality_streak": torch.zeros_like(zero, dtype=torch.long),
+            "sequence_progress": zero,
             "second_touch_conditional_success": false,
+            "second_touch_conditional_success_v2": false,
             "acquisition_invalid_early_contact": false,
             "acquisition_history_steps_before_contact": zero,
             "timing_error_seconds": zero,
@@ -984,6 +1121,16 @@ def dribbling_s2_contact_event_state(
     upcoming_event_frame = target_event["upcoming_event_frame"]
 
     ball_pos_w = env.scene["soccer_ball"].data.root_pos_w[:, :3]
+    anchor_lookup = getattr(command, "s2_contact_anchor_target_w", None)
+    if callable(anchor_lookup):
+        contact_anchor_w, contact_anchor_valid = anchor_lookup(event_id)
+    else:
+        contact_anchor_w = torch.zeros(env.num_envs, 3, device=env.device)
+        contact_anchor_valid = false
+    contact_anchor_distance = torch.linalg.vector_norm(
+        ball_pos_w[:, :2] - contact_anchor_w[:, :2], dim=-1
+    )
+    first_event_index = getattr(command, "s2_episode_first_event_index", minus_one)
 
     has_contact, force_magnitude, closest_body = _identify_contact_body(
         env, command, ball_sensor_name, all_body_cfg
@@ -1018,7 +1165,14 @@ def dribbling_s2_contact_event_state(
     )
     batch = torch.arange(env.num_envs, device=env.device)
     actual_foot_pos = robot.data.body_pos_w[batch, selected_pose_index]
+    actual_foot_quat = robot.data.body_quat_w[batch, selected_pose_index]
     actual_foot_yaw = yaw_quat(robot.data.body_quat_w[batch, selected_pose_index])
+    # This is ordinary live foot-ball geometry used by contact logic and
+    # diagnostics.  It must remain available when the optional V3 point cloud
+    # is disabled.
+    ball_in_actual_foot = quat_apply_inverse(
+        actual_foot_quat, ball_pos_w - actual_foot_pos
+    )
     ball_from_actual_foot = quat_apply_inverse(
         actual_foot_yaw, ball_pos_w - actual_foot_pos
     )
@@ -1061,6 +1215,50 @@ def dribbling_s2_contact_event_state(
     proximity = (
         1.0 / (1.0 + normalized_distance.square())
     ) * proximity_active.to(torch.float32) * approach_weight
+    # Sparse event-anchor supervision: guide the physical ball only during the
+    # final approach/contact window.  The ball is deliberately unconstrained
+    # between events, so PhysX can choose any viable rolling path.
+    # Use the physical ball radius as the shaping length scale unless an
+    # explicit ablation overrides it.  This keeps anchor error continuous and
+    # dimensionless without inventing another centimetre tolerance.
+    anchor_error_local = quat_apply_inverse(
+        actual_foot_quat, ball_pos_w - contact_anchor_w
+    )
+    if contact_anchor_local_sigmas is not None:
+        if len(contact_anchor_local_sigmas) != 3 or any(
+            float(value) <= 0.0 for value in contact_anchor_local_sigmas
+        ):
+            raise ValueError("contact_anchor_local_sigmas must contain three positive values")
+        anchor_sigmas = torch.tensor(
+            contact_anchor_local_sigmas,
+            dtype=anchor_error_local.dtype,
+            device=env.device,
+        )
+        # Continuous anisotropic geometry quality in the actual foot frame.
+        # The physical collision remains mandatory; this quality only rejects
+        # contacts outside the calibrated manual-anchor neighbourhood.
+        contact_anchor_quality = torch.exp(
+            -0.5 * torch.sum(torch.square(anchor_error_local / anchor_sigmas), dim=-1)
+        )
+    else:
+        anchor_scale = (
+            float(contact_anchor_std)
+            if contact_anchor_std is not None
+            else float(getattr(command.cfg, "dribble_cg_ball_radius", 0.11))
+        )
+        contact_anchor_quality = torch.exp(
+            -torch.square(contact_anchor_distance / max(anchor_scale, 1.0e-6))
+        )
+    contact_anchor_arrival = (
+        contact_anchor_quality
+        * proximity_active.to(torch.float32)
+        * contact_anchor_valid.to(torch.float32)
+    )
+    # Keep this signal for the first event as well.  Although the physical
+    # ball is spawned at the reference O1 point, ``contact_anchor_w`` is the
+    # labelled foot-local offset mapped through the *actual* foot pose.  Its
+    # error is therefore zero only when the policy places the real foot at the
+    # labelled contact geometry; it is not a free reset-position reward.
 
     # Far from the event, reward only improvement in physical distance.  A
     # potential difference prevents the old stationary "stay glued to ball"
@@ -1101,12 +1299,162 @@ def dribbling_s2_contact_event_state(
     setattr(env, "_dribbling_s2_approach_event", previous_approach_event)
     setattr(env, "_dribbling_s2_approach_potential", previous_approach_potential)
 
+    # Treat every uninterrupted PhysX ball-contact interval as one physical
+    # episode.  A labelled event may own an episode only when that episode's
+    # re-armed physical onset occurs inside the event's annotated timing
+    # window.  Once owned, the episode remains eligible over its consecutive
+    # contact frames so foot/side geometry may settle one step after onset.
+    # An onset before the window can therefore never become a candidate merely
+    # by remaining in contact until the window opens.  The same physical
+    # episode also cannot complete two nearby labels: O1 and O2 require a real
+    # release and re-arm between them.
+    physical_episode = getattr(
+        env, "_dribbling_s2_physical_contact_episode", None
+    )
+    physical_start_frame = getattr(
+        env, "_dribbling_s2_physical_contact_start_frame", None
+    )
+    claimed_episode = getattr(
+        env, "_dribbling_s2_claimed_contact_episode", None
+    )
+    claimed_event = getattr(env, "_dribbling_s2_claimed_contact_event", None)
+    claimed_body = getattr(env, "_dribbling_s2_claimed_contact_body", None)
+    if not isinstance(physical_episode, torch.Tensor) or physical_episode.shape[0] != env.num_envs:
+        physical_episode = torch.zeros_like(frame)
+    if not isinstance(physical_start_frame, torch.Tensor) or physical_start_frame.shape[0] != env.num_envs:
+        physical_start_frame = minus_one.clone()
+    if not isinstance(claimed_episode, torch.Tensor) or claimed_episode.shape[0] != env.num_envs:
+        claimed_episode = minus_one.clone()
+    if not isinstance(claimed_event, torch.Tensor) or claimed_event.shape[0] != env.num_envs:
+        claimed_event = minus_one.clone()
+    if not isinstance(claimed_body, torch.Tensor) or claimed_body.shape[0] != env.num_envs:
+        claimed_body = minus_one.clone()
+    release_off_count = getattr(env, "_dribbling_s2_contact_release_off_count", None)
+    contact_rearmed = getattr(env, "_dribbling_s2_contact_rearmed", None)
+    if not isinstance(release_off_count, torch.Tensor) or release_off_count.shape[0] != env.num_envs:
+        release_off_count = torch.zeros_like(frame)
+    if not isinstance(contact_rearmed, torch.Tensor) or contact_rearmed.shape[0] != env.num_envs:
+        contact_rearmed = torch.ones_like(false)
+    physical_episode = torch.where(reset, torch.zeros_like(physical_episode), physical_episode)
+    physical_start_frame = torch.where(reset, minus_one, physical_start_frame)
+    claimed_episode = torch.where(reset, minus_one, claimed_episode)
+    claimed_event = torch.where(reset, minus_one, claimed_event)
+    claimed_body = torch.where(reset, minus_one, claimed_body)
+    release_off_count = torch.where(reset, torch.zeros_like(release_off_count), release_off_count)
+    contact_rearmed = torch.where(reset, torch.ones_like(contact_rearmed), contact_rearmed)
+
+    # A force threshold crossing is not sufficient evidence that the shoe
+    # released the ball: solver force can briefly reach zero while the same
+    # contact manifold remains geometrically closed.  The clean route uses a
+    # short force-free interval as the complete re-arm condition.  Historical
+    # V3 ablations additionally require leaving their loaded contact region.
+    claimed_region_lookup = getattr(command, "s2_contact_region", None)
+    contact_regions_available = bool(
+        getattr(command, "_s2_contact_regions_available", False)
+    )
+    if callable(claimed_region_lookup) and contact_regions_available:
+        claimed_points, claimed_point_valid, _timing, _source, claimed_region_valid = (
+            claimed_region_lookup(claimed_event)
+        )
+        claimed_is_right = claimed_body == right_cfg_index
+        claimed_pose_index = torch.where(
+            claimed_is_right,
+            torch.full_like(claimed_body, int(pose_indices[1].item())),
+            torch.full_like(claimed_body, int(pose_indices[0].item())),
+        )
+        claimed_foot_pos = robot.data.body_pos_w[batch, claimed_pose_index]
+        claimed_foot_quat = robot.data.body_quat_w[batch, claimed_pose_index]
+        ball_in_claimed_foot = quat_apply_inverse(
+            claimed_foot_quat, ball_pos_w - claimed_foot_pos
+        )
+        claimed_point_distance = torch.linalg.vector_norm(
+            ball_in_claimed_foot.unsqueeze(1) - claimed_points, dim=-1
+        )
+        claimed_point_distance = torch.where(
+            claimed_point_valid,
+            claimed_point_distance,
+            torch.full_like(claimed_point_distance, torch.inf),
+        )
+        claimed_cover_radius = max(
+            0.0, float(getattr(command, "_s2_contact_region_cover_radius", 0.0))
+        )
+        claimed_region_distance = torch.clamp(
+            torch.min(claimed_point_distance, dim=1).values - claimed_cover_radius,
+            min=0.0,
+        )
+        left_claimed_region = claimed_region_valid & (claimed_region_distance > 0.0)
+        # A premature/unlabelled physical onset has no claimed event region.
+        # It still consumes the re-arm latch, and therefore needs only the
+        # force-free condition before another onset can become a new episode.
+        left_claimed_region = torch.where(
+            claimed_episode == physical_episode,
+            left_claimed_region,
+            torch.ones_like(left_claimed_region),
+        )
+    else:
+        claimed_region_distance = torch.full_like(zeros, torch.inf)
+        left_claimed_region = torch.ones_like(false)
+    release_off_count = torch.where(
+        ~has_contact,
+        release_off_count + 1,
+        torch.zeros_like(release_off_count),
+    )
+    release_confirmed = (
+        (physical_episode > 0)
+        & (release_off_count >= max(1, int(contact_release_no_force_steps)))
+        & left_claimed_region
+    )
+    contact_rearmed = contact_rearmed | release_confirmed
+
     previous_contact = getattr(env, "_dribbling_s2_previous_contact", None)
     if not isinstance(previous_contact, torch.Tensor) or previous_contact.shape[0] != env.num_envs:
         previous_contact = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     previous_contact = previous_contact & ~reset
-    new_physical_contact = has_contact & ~previous_contact & ~reset
+    new_physical_contact = has_contact & ~previous_contact & ~reset & contact_rearmed
     setattr(env, "_dribbling_s2_previous_contact", has_contact.detach().clone())
+    physical_episode = physical_episode + new_physical_contact.to(torch.long)
+    physical_start_frame = torch.where(
+        new_physical_contact, frame, physical_start_frame
+    )
+    # Every recognized onset consumes the latch, including an onset before a
+    # labelled window.  A one-frame force flicker must not turn that premature
+    # contact into a fresh in-window candidate; the configured force-free
+    # interval has to complete first.
+    contact_rearmed = contact_rearmed & ~new_physical_contact
+    # ``active`` already includes the configured annotation tolerance (for the
+    # clean S2 tasks this is the labelled segment padded by +/-2 reference
+    # frames).  Do not add a second hand-tuned grace threshold here.  Requiring
+    # ``new_physical_contact`` is the essential causal gate: an uninterrupted
+    # contact whose onset happened before this window cannot be claimed later.
+    event_contact_claim = (
+        active
+        & new_physical_contact
+        & (physical_episode != claimed_episode)
+    )
+    claimed_episode = torch.where(
+        event_contact_claim, physical_episode, claimed_episode
+    )
+    claimed_event = torch.where(event_contact_claim, event_id, claimed_event)
+    claimed_body = torch.where(event_contact_claim, closest_body, claimed_body)
+    event_owns_physical_contact = (
+        active
+        & has_contact
+        & (claimed_episode == physical_episode)
+        & (claimed_event == event_id)
+        & (claimed_body == closest_body)
+    )
+    # ``contact_onset_early_grace_steps`` is retained in the public parameter
+    # list for config/checkpoint compatibility, but timing truth is now solely
+    # the pre-expanded event table above.  Ownership itself proves that the
+    # re-armed onset occurred in that window; accepting a continuously held
+    # pre-window contact here would reintroduce the timing loophole.
+    setattr(env, "_dribbling_s2_physical_contact_episode", physical_episode)
+    setattr(env, "_dribbling_s2_physical_contact_start_frame", physical_start_frame)
+    setattr(env, "_dribbling_s2_claimed_contact_episode", claimed_episode)
+    setattr(env, "_dribbling_s2_claimed_contact_event", claimed_event)
+    setattr(env, "_dribbling_s2_claimed_contact_body", claimed_body)
+    setattr(env, "_dribbling_s2_contact_release_off_count", release_off_count)
+    setattr(env, "_dribbling_s2_contact_rearmed", contact_rearmed)
 
     # The ball sensor exposes force and the closest body, but not a contact
     # point. Use the collision-frame physical ball center in the actual foot's
@@ -1127,9 +1475,69 @@ def dribbling_s2_contact_event_state(
         & (step < max(1, int(acquisition_min_history_steps)))
         & has_contact
     )
-    expected_foot_touch = (
-        active & new_physical_contact & selected_foot_valid & acquisition_ready
+    expected_foot_claim = (
+        event_contact_claim
+        & selected_foot_valid
+        & acquisition_ready
     )
+    expected_foot_touch = (
+        event_owns_physical_contact
+        & selected_foot_valid
+        & acquisition_ready
+    )
+
+    # The first touch in each pair is a provisional preparation contact.  The
+    # second touch is the pair's task endpoint and must occur on the calibrated
+    # robot-aware contact patch before it can complete C2 or unlock a
+    # transition.  This rejects heel/sole collisions that have the correct
+    # lateral sign but the wrong longitudinal shoe location.  The threshold is
+    # calibrated from positive/negative deterministic rollouts; it is not a
+    # reference ball speed or trajectory target.
+    pair_terminal_region_quality_pass = torch.ones_like(active)
+    if pair_terminal_contact_region_max_distance is not None:
+        qualification_region_lookup = getattr(command, "s2_contact_region", None)
+        if callable(qualification_region_lookup) and contact_regions_available:
+            (
+                qualification_points,
+                qualification_point_valid,
+                _qualification_timing,
+                _qualification_source,
+                qualification_region_valid,
+            ) = qualification_region_lookup(event_id)
+            qualification_ball_local = quat_apply_inverse(
+                actual_foot_quat, ball_pos_w - actual_foot_pos
+            )
+            qualification_point_distance = torch.linalg.vector_norm(
+                qualification_ball_local.unsqueeze(1) - qualification_points,
+                dim=-1,
+            )
+            qualification_point_distance = torch.where(
+                qualification_point_valid,
+                qualification_point_distance,
+                torch.full_like(qualification_point_distance, torch.inf),
+            )
+            qualification_cover_radius = max(
+                0.0,
+                float(getattr(command, "_s2_contact_region_cover_radius", 0.0)),
+            )
+            qualification_region_distance = torch.clamp(
+                torch.min(qualification_point_distance, dim=1).values
+                - qualification_cover_radius,
+                min=0.0,
+            )
+            pair_terminal = (event_id >= 0) & ((event_id % 2) == 1)
+            pair_terminal_region_quality_pass = (
+                ~pair_terminal
+                | (
+                    qualification_region_valid
+                    & (
+                        qualification_region_distance
+                        <= float(pair_terminal_contact_region_max_distance)
+                    )
+                )
+            )
+        else:
+            pair_terminal_region_quality_pass = (event_id < 0) | ((event_id % 2) == 0)
 
     # Release state is independent of the current reference window.  The
     # target direction is world-frame and is latched at the physical touch.
@@ -1138,13 +1546,23 @@ def dribbling_s2_contact_event_state(
         not isinstance(release, dict)
         or release.get("num_envs") != env.num_envs
         or release.get("window_steps") != int(release_window_steps)
+        or "next_event_end_frame" not in release
+        or "next_event_window_start_frame" not in release
+        or "arrival_previous_potential" not in release
     ):
         release = {
             "num_envs": env.num_envs,
             "window_steps": int(release_window_steps),
             "active": false.clone(),
+            # Continues after the short velocity-quality window so a release
+            # is credited only if the physical ball keeps making progress to
+            # the *next* labelled anchor.
+            "arrival_active": false.clone(),
             "event_id": minus_one.clone(),
             "touch_frame": minus_one.clone(),
+            "next_event_frame": minus_one.clone(),
+            "next_event_window_start_frame": minus_one.clone(),
+            "next_event_end_frame": minus_one.clone(),
             "foot": minus_one.clone(),
             "next_anchor_w": torch.zeros(env.num_envs, 3, device=env.device),
             "direction_w": torch.zeros(env.num_envs, 2, device=env.device),
@@ -1152,17 +1570,41 @@ def dribbling_s2_contact_event_state(
             "remaining_time": zeros.clone(),
             "nominal_speed": zeros.clone(),
             "touch_ball_position": torch.zeros(env.num_envs, 3, device=env.device),
+            # Smallest distance achieved since the accepted physical touch.
+            # Progress is measured against this monotone potential so moving
+            # away and returning cannot earn the same distance twice.
+            "arrival_best_distance": zeros.clone(),
+            # Previous distance is used by the signed potential reward.  The
+            # distance at contact remains in ``target_distance`` and is used
+            # to decide whether the touch actually moved the ball toward the
+            # following sparse anchor.
+            "arrival_previous_distance": zeros.clone(),
+            "arrival_previous_potential": zeros.clone(),
             "age": torch.zeros(env.num_envs, dtype=torch.long, device=env.device),
             "velocity_buffer": torch.zeros(
                 env.num_envs, int(release_window_steps), 2, device=env.device
             ),
             "multiplier": torch.ones(env.num_envs, device=env.device),
         }
-    for key in ("active",):
+    for key in ("active", "arrival_active"):
         release[key] = release[key] & ~reset
-    for key in ("event_id", "touch_frame", "foot"):
+    for key in (
+        "event_id",
+        "touch_frame",
+        "next_event_frame",
+        "next_event_window_start_frame",
+        "next_event_end_frame",
+        "foot",
+    ):
         release[key] = torch.where(reset, minus_one, release[key])
-    for key in ("target_distance", "remaining_time", "nominal_speed"):
+    for key in (
+        "target_distance",
+        "remaining_time",
+        "nominal_speed",
+        "arrival_best_distance",
+        "arrival_previous_distance",
+        "arrival_previous_potential",
+    ):
         release[key] = torch.where(reset, zeros, release[key])
     release["age"] = torch.where(reset, torch.zeros_like(release["age"]), release["age"])
     release["velocity_buffer"] = torch.where(
@@ -1194,19 +1636,45 @@ def dribbling_s2_contact_event_state(
     occurrence_seen = torch.where(reset, torch.zeros_like(occurrence_seen), occurrence_seen)
     grace_count = torch.where(reset, torch.zeros_like(grace_count), grace_count)
 
-    release_for_tracked_event = release["active"] & (
-        release["event_id"] == tracked_event
+    # Strict causal sequence contract.  Only the event at this cursor can
+    # produce any S2 ball reward.  A later labelled collision remains visible
+    # in telemetry, but cannot bypass a missed predecessor.
+    sequence_cursor = getattr(command, "s2_sequence_cursor", None)
+    if (
+        not isinstance(sequence_cursor, torch.Tensor)
+        or sequence_cursor.shape[0] != env.num_envs
+    ):
+        sequence_cursor = first_event_index.clone()
+    sequence_cursor = torch.where(
+        reset, first_event_index, sequence_cursor
+    ).to(torch.long)
+
+    # Event ordering is grounded only in observable contact facts.  A strict
+    # current-window/foot/side PhysX candidate completes the current contact
+    # node; no hand-tuned displacement threshold participates in cursor
+    # advancement.  Its outgoing transition is verified by the next ordered
+    # physical candidate (O2 verifies O1->O2, I3 verifies O2->I3, ...).
+    transitioned = (
+        active
+        & (tracked_event >= 0)
+        & (event_id != tracked_event)
     )
-    transitioned = active & (tracked_event >= 0) & (event_id != tracked_event)
     deadline = (
         ~active
         & (tracked_event >= 0)
         & (grace_count >= max(0, int(missed_contact_grace_steps)))
-        & ~release_for_tracked_event
     )
     completed = transitioned | deadline
+    completed_event = tracked_event.clone()
     completed_success = completed & valid_event_succeeded
     missed_valid_contact = completed & ~valid_event_succeeded
+    advance_cursor = (
+        completed_success
+        & (completed_event == sequence_cursor)
+    )
+    sequence_cursor = torch.where(
+        advance_cursor, sequence_cursor + 1, sequence_cursor
+    )
 
     tracked_event = torch.where(completed, torch.full_like(tracked_event, -1), tracked_event)
     valid_event_succeeded = torch.where(
@@ -1214,7 +1682,7 @@ def dribbling_s2_contact_event_state(
     )
     occurrence_seen = torch.where(completed, torch.zeros_like(occurrence_seen), occurrence_seen)
     grace_count = torch.where(completed, torch.zeros_like(grace_count), grace_count)
-    new_event = active & (tracked_event != event_id)
+    new_event = active & (tracked_event < 0)
     tracked_event = torch.where(new_event, event_id, tracked_event)
     valid_event_succeeded = torch.where(
         new_event, torch.zeros_like(valid_event_succeeded), valid_event_succeeded
@@ -1222,23 +1690,396 @@ def dribbling_s2_contact_event_state(
     occurrence_seen = torch.where(new_event, torch.zeros_like(occurrence_seen), occurrence_seen)
     grace_count = torch.where(new_event | active, torch.zeros_like(grace_count), grace_count)
 
-    # Immediate contact requires the correct event window and foot, but not a
-    # particular inside/outside surface.  Surface remains a low-weight style
-    # score and cannot block outgoing release learning.
+    sequence_eligible = (
+        (sequence_cursor >= 0)
+        & (event_id == sequence_cursor)
+    )
+    command.s2_sequence_cursor.copy_(sequence_cursor)
+
+    # Frozen robot-aware contact region for the current event. Points and the
+    # live ball use the same full ankle-roll local frame as the CUDA scan.
+    region_lookup = getattr(command, "s2_contact_region", None)
+    if callable(region_lookup) and contact_regions_available:
+        (
+            region_points,
+            region_point_valid,
+            region_point_timing,
+            region_source_id,
+            region_valid,
+        ) = region_lookup(event_id)
+        region_point_distance = torch.linalg.vector_norm(
+            ball_in_actual_foot.unsqueeze(1) - region_points, dim=-1
+        )
+        region_point_distance = torch.where(
+            region_point_valid,
+            region_point_distance,
+            torch.full_like(region_point_distance, torch.inf),
+        )
+        nearest_region_slot = torch.argmin(region_point_distance, dim=1)
+        batch_index = torch.arange(env.num_envs, device=env.device)
+        nearest_region_raw_distance = region_point_distance[
+            batch_index, nearest_region_slot
+        ]
+        cover_radius = max(
+            0.0, float(getattr(command, "_s2_contact_region_cover_radius", 0.0))
+        )
+        contact_region_distance = torch.clamp(
+            nearest_region_raw_distance - cover_radius, min=0.0
+        )
+        contact_region_distance = torch.where(
+            region_valid, contact_region_distance, zeros
+        )
+        nearest_region_point_id = region_source_id[
+            batch_index, nearest_region_slot
+        ]
+        nearest_region_point_timing = region_point_timing[
+            batch_index, nearest_region_slot
+        ]
+        nearest_region_point_id = torch.where(
+            region_valid, nearest_region_point_id, minus_one
+        )
+        nearest_region_point_timing = torch.where(
+            region_valid, nearest_region_point_timing, minus_one
+        )
+    else:
+        region_valid = false
+        contact_region_distance = zeros
+        nearest_region_point_id = minus_one
+        nearest_region_point_timing = minus_one
+    region_arrival_scale = max(float(contact_region_arrival_std), 1.0e-6)
+    contact_region_arrival = torch.exp(
+        -torch.square(contact_region_distance / region_arrival_scale)
+    ) * (active & region_valid & sequence_eligible).to(torch.float32)
+
+    # All dense S2 ball guidance obeys the same cursor.  Motion imitation is
+    # deliberately outside this gate and continues over the full reference.
+    contact_anchor_arrival = contact_anchor_arrival * sequence_eligible.to(
+        contact_anchor_arrival.dtype
+    )
+    proximity = proximity * sequence_eligible.to(proximity.dtype)
+    approach_progress_reward = approach_progress_reward * sequence_eligible.to(
+        approach_progress_reward.dtype
+    )
+
+    # Isaac Lab's ball contact sensor does not expose a stable shoe mesh
+    # contact point.  Therefore inside/outside is defined solely from the
+    # physical ball centre in the *actual* ankle-yaw frame above: signed local
+    # lateral position beyond ``side_deadzone``.  A correct-time/correct-foot
+    # touch on the wrong side is an attempt, not an S2 success: it must not
+    # unlock the next-anchor release reward or advance the curriculum.
     proximity_blocked = valid_event_succeeded & (tracked_event == event_id)
     proximity = proximity * (~proximity_blocked).to(proximity.dtype)
-    immediate_contact = expected_foot_touch & ~valid_event_succeeded
-    touch_occurrence = immediate_contact & ~occurrence_seen
-    valid_contact_event = immediate_contact
+    side_valid_touch = expected_foot_touch & (
+        ~side_known | side_correct
+    )
+    # A labelled anchor is approximate supervision, not contact ground truth.
+    # Do not reject a real, correctly timed, correctly sided PhysX collision
+    # with an uncalibrated centre-position tolerance.  Anchor accuracy remains
+    # available as a continuous reward and diagnostic.
+    if contact_anchor_quality_min is not None:
+        anchor_valid_touch = (
+            side_valid_touch
+            & contact_anchor_valid
+            & (contact_anchor_quality >= float(contact_anchor_quality_min))
+        )
+    elif contact_anchor_max_distance is None:
+        anchor_valid_touch = side_valid_touch
+    else:
+        anchor_valid_touch = side_valid_touch & (
+            ~contact_anchor_valid
+            | (contact_anchor_distance <= float(contact_anchor_max_distance))
+        )
+    # Approximate contact position is only a broad sanity check in the actual
+    # yaw-aligned foot frame.  It rejects obvious heel/behind-foot contacts;
+    # it does not compare against a precise anchor point or a V3 point cloud.
+    coarse_longitudinal_pass = torch.ones_like(active)
+    if (
+        coarse_contact_longitudinal_min is not None
+        or coarse_contact_longitudinal_max is not None
+    ):
+        if coarse_contact_longitudinal_min is not None:
+            coarse_longitudinal_pass = coarse_longitudinal_pass & (
+                ball_from_actual_foot[:, 0]
+                >= float(coarse_contact_longitudinal_min)
+            )
+        if coarse_contact_longitudinal_max is not None:
+            coarse_longitudinal_pass = coarse_longitudinal_pass & (
+                ball_from_actual_foot[:, 0]
+                <= float(coarse_contact_longitudinal_max)
+            )
+        anchor_valid_touch = anchor_valid_touch & coarse_longitudinal_pass
+    raw_immediate_contact = (
+        anchor_valid_touch & ~valid_event_succeeded & ~occurrence_seen
+    )
+    raw_touch_occurrence = raw_immediate_contact & ~occurrence_seen
+    out_of_sequence_contact = raw_touch_occurrence & ~sequence_eligible
+    immediate_contact = raw_immediate_contact & sequence_eligible
+    touch_occurrence = raw_touch_occurrence & sequence_eligible
+    # ``immediate_contact`` is the current contact-node fact used by the
+    # ordered cursor.  The delayed effective pulse has a different meaning:
+    # the next ordered physical candidate verifies that the *previous*
+    # transition was physically completed (O2 verifies O1->O2, I3 verifies
+    # O2->I3, ...).  The first selected event therefore never receives this
+    # bonus.  No displacement, speed, point-anchor, or region threshold is
+    # involved.
+    ordered_transition_completion = (
+        immediate_contact
+        & (first_event_index >= 0)
+        & (event_id > first_event_index)
+    )
+    valid_contact_event = ordered_transition_completion
+    valid_event_succeeded = valid_event_succeeded | immediate_contact
     surface_style = (
         immediate_contact & side_known & side_correct
     ).to(torch.float32)
-    wrong_side = immediate_contact & side_known & side_wrong
-    dead_zone = immediate_contact & side_known & (
-        torch.abs(current_lateral) < float(side_deadzone)
+    # Attempt diagnostics are one pulse at episode ownership.  The valid
+    # contact itself may still become true on a later frame of this same
+    # annotated/physical segment as the anchor geometry settles.
+    wrong_side = (
+        expected_foot_claim & side_known & side_wrong & sequence_eligible
     )
-    occurrence_seen = occurrence_seen | touch_occurrence
-    valid_event_succeeded = valid_event_succeeded | immediate_contact
+    dead_zone = expected_foot_claim & side_known & (
+        (float(side_deadzone) > 0.0)
+        & (torch.abs(current_lateral) < float(side_deadzone))
+    ) & sequence_eligible
+    occurrence_seen = occurrence_seen | raw_touch_occurrence
+
+    # Weak acquisition shaping for the current cursor only.  The target is
+    # deliberately coarse: bring the labelled foot toward the real ball while
+    # correcting only the wrong-side component.  It does not use the manual
+    # contact point, V3 geometry, ball velocity, or a reconstructed trajectory.
+    side_error = proximity_geometry["side_error"]
+    coarse_approach_distance = torch.sqrt(
+        physical_foot_ball_distance.square() + side_error.square()
+    )
+    coarse_pre_window = (
+        (seconds_to_event >= 0.0)
+        & (seconds_to_event <= max(0.0, float(coarse_approach_duration)))
+    )
+    coarse_approach_active = (
+        (active | coarse_pre_window)
+        & sequence_eligible
+        & ~occurrence_seen
+        & ~valid_event_succeeded
+    )
+    previous_coarse_event = getattr(env, "_dribbling_s2_coarse_approach_event", None)
+    previous_coarse_distance = getattr(env, "_dribbling_s2_coarse_approach_distance", None)
+    previous_coarse_active = getattr(env, "_dribbling_s2_coarse_approach_active", None)
+    if not isinstance(previous_coarse_event, torch.Tensor) or previous_coarse_event.shape[0] != env.num_envs:
+        previous_coarse_event = minus_one.clone()
+    if not isinstance(previous_coarse_distance, torch.Tensor) or previous_coarse_distance.shape[0] != env.num_envs:
+        previous_coarse_distance = zeros.clone()
+    if not isinstance(previous_coarse_active, torch.Tensor) or previous_coarse_active.shape[0] != env.num_envs:
+        previous_coarse_active = false.clone()
+    previous_coarse_event = torch.where(reset, minus_one, previous_coarse_event)
+    previous_coarse_distance = torch.where(reset, zeros, previous_coarse_distance)
+    previous_coarse_active = previous_coarse_active & ~reset
+    same_coarse_phase = (
+        coarse_approach_active
+        & previous_coarse_active
+        & (previous_coarse_event == event_id)
+    )
+    coarse_limit = max(0.0, float(coarse_approach_progress_max))
+    coarse_contact_approach = torch.clamp(
+        (previous_coarse_distance - coarse_approach_distance) / step_dt,
+        min=-coarse_limit,
+        max=coarse_limit,
+    ) * same_coarse_phase.to(torch.float32)
+    previous_coarse_event = torch.where(coarse_approach_active, event_id, minus_one)
+    previous_coarse_distance = torch.where(
+        coarse_approach_active, coarse_approach_distance, zeros
+    )
+    previous_coarse_active = coarse_approach_active
+    setattr(env, "_dribbling_s2_coarse_approach_event", previous_coarse_event)
+    setattr(env, "_dribbling_s2_coarse_approach_distance", previous_coarse_distance)
+    setattr(env, "_dribbling_s2_coarse_approach_active", previous_coarse_active)
+
+    # Wide, cursor-causal acquisition shaping toward the labelled foot-local
+    # anchor.  This is deliberately separate from the narrow contact-quality
+    # ellipsoid above: it must remain informative before physical contact.
+    if (
+        len(anchor_approach_local_scales) != 3
+        or any(float(value) <= 0.0 for value in anchor_approach_local_scales)
+    ):
+        raise ValueError(
+            "anchor_approach_local_scales must contain three positive values"
+        )
+    anchor_approach_scales = torch.tensor(
+        anchor_approach_local_scales,
+        dtype=anchor_error_local.dtype,
+        device=env.device,
+    )
+    anchor_approach_distance = torch.sum(
+        torch.square(anchor_error_local / anchor_approach_scales), dim=-1
+    )
+    anchor_approach_pre_window = (
+        (seconds_to_event >= 0.0)
+        & (seconds_to_event <= max(0.0, float(anchor_approach_duration)))
+    )
+    anchor_approach_active = (
+        (active | anchor_approach_pre_window)
+        & contact_anchor_valid
+        & sequence_eligible
+        & ~valid_event_succeeded
+    )
+    previous_anchor_event = getattr(
+        env, "_dribbling_s2_anchor_approach_event", None
+    )
+    previous_anchor_distance = getattr(
+        env, "_dribbling_s2_anchor_approach_distance", None
+    )
+    previous_anchor_active = getattr(
+        env, "_dribbling_s2_anchor_approach_active", None
+    )
+    if (
+        not isinstance(previous_anchor_event, torch.Tensor)
+        or previous_anchor_event.shape[0] != env.num_envs
+    ):
+        previous_anchor_event = minus_one.clone()
+    if (
+        not isinstance(previous_anchor_distance, torch.Tensor)
+        or previous_anchor_distance.shape[0] != env.num_envs
+    ):
+        previous_anchor_distance = zeros.clone()
+    if (
+        not isinstance(previous_anchor_active, torch.Tensor)
+        or previous_anchor_active.shape[0] != env.num_envs
+    ):
+        previous_anchor_active = false.clone()
+    previous_anchor_event = torch.where(reset, minus_one, previous_anchor_event)
+    previous_anchor_distance = torch.where(reset, zeros, previous_anchor_distance)
+    previous_anchor_active = previous_anchor_active & ~reset
+    same_anchor_phase = (
+        anchor_approach_active
+        & previous_anchor_active
+        & (previous_anchor_event == event_id)
+    )
+    anchor_approach_progress_v2 = torch.clamp(
+        (previous_anchor_distance - anchor_approach_distance) / step_dt,
+        min=-max(0.0, float(anchor_approach_progress_max)),
+        max=max(0.0, float(anchor_approach_progress_max)),
+    ) * same_anchor_phase.to(torch.float32)
+    # Initializing from the current distance makes reset, inactive->active,
+    # cursor changes, invalid->valid anchors, and successful contacts produce
+    # no artificial transition pulse.
+    previous_anchor_event = torch.where(
+        anchor_approach_active, event_id, minus_one
+    )
+    previous_anchor_distance = torch.where(
+        anchor_approach_active, anchor_approach_distance, zeros
+    )
+    previous_anchor_active = anchor_approach_active
+    setattr(env, "_dribbling_s2_anchor_approach_event", previous_anchor_event)
+    setattr(
+        env, "_dribbling_s2_anchor_approach_distance", previous_anchor_distance
+    )
+    setattr(env, "_dribbling_s2_anchor_approach_active", previous_anchor_active)
+
+    region_pre_window = (
+        (seconds_to_event >= 0.0)
+        & (seconds_to_event <= max(0.0, float(contact_region_approach_duration)))
+    )
+    contact_region_active = (
+        (active | region_pre_window)
+        & region_valid
+        & sequence_eligible
+        & ~valid_event_succeeded
+    )
+    previous_region_event = getattr(env, "_dribbling_s2_region_event", None)
+    previous_region_distance = getattr(env, "_dribbling_s2_region_distance", None)
+    previous_region_active = getattr(env, "_dribbling_s2_region_active", None)
+    if not isinstance(previous_region_event, torch.Tensor) or previous_region_event.shape[0] != env.num_envs:
+        previous_region_event = minus_one.clone()
+    if not isinstance(previous_region_distance, torch.Tensor) or previous_region_distance.shape[0] != env.num_envs:
+        previous_region_distance = zeros.clone()
+    if not isinstance(previous_region_active, torch.Tensor) or previous_region_active.shape[0] != env.num_envs:
+        previous_region_active = false.clone()
+    previous_region_event = torch.where(reset, minus_one, previous_region_event)
+    previous_region_distance = torch.where(reset, zeros, previous_region_distance)
+    previous_region_active = previous_region_active & ~reset
+    same_region_phase = (
+        contact_region_active
+        & previous_region_active
+        & (previous_region_event == event_id)
+    )
+    contact_region_progress_v3 = torch.clamp(
+        (previous_region_distance - contact_region_distance) / step_dt,
+        min=-max(0.0, float(contact_region_progress_max)),
+        max=max(0.0, float(contact_region_progress_max)),
+    ) * same_region_phase.to(torch.float32)
+    previous_region_event = torch.where(
+        contact_region_active, event_id, minus_one
+    )
+    previous_region_distance = torch.where(
+        contact_region_active, contact_region_distance, zeros
+    )
+    previous_region_active = contact_region_active
+    setattr(env, "_dribbling_s2_region_event", previous_region_event)
+    setattr(env, "_dribbling_s2_region_distance", previous_region_distance)
+    setattr(env, "_dribbling_s2_region_active", previous_region_active)
+
+    # Event-specific C2 telemetry. These are diagnostics only and never alter
+    # contact truth or the frozen offline region.
+    inf = torch.full_like(zeros, torch.inf)
+    o1_min = getattr(env, "_dribbling_s2_o1_min_region_distance", None)
+    o2_min = getattr(env, "_dribbling_s2_o2_min_region_distance", None)
+    o1_occ = getattr(env, "_dribbling_s2_o1_region_occupancy", None)
+    o1_samples = getattr(env, "_dribbling_s2_o1_region_samples", None)
+    o1_quality = getattr(env, "_dribbling_s2_o1_region_quality", None)
+    o1_contact = getattr(env, "_dribbling_s2_o1_contact", None)
+    o2_given_o1 = getattr(env, "_dribbling_s2_o2_given_o1", None)
+    telemetry_tensors = (
+        o1_min, o2_min, o1_occ, o1_samples, o1_quality, o1_contact, o2_given_o1
+    )
+    if any(
+        not isinstance(value, torch.Tensor) or value.shape[0] != env.num_envs
+        for value in telemetry_tensors
+    ):
+        o1_min, o2_min = inf.clone(), inf.clone()
+        o1_occ = zeros.clone()
+        o1_samples = zeros.clone()
+        o1_quality = zeros.clone()
+        o1_contact = false.clone()
+        o2_given_o1 = false.clone()
+    o1_min = torch.where(reset, inf, o1_min)
+    o2_min = torch.where(reset, inf, o2_min)
+    o1_occ = torch.where(reset, zeros, o1_occ)
+    o1_samples = torch.where(reset, zeros, o1_samples)
+    o1_quality = torch.where(reset, zeros, o1_quality)
+    o1_contact = torch.where(reset, false, o1_contact)
+    o2_given_o1 = torch.where(reset, false, o2_given_o1)
+    o1_sample = region_valid & (event_id == 0) & (active | region_pre_window)
+    o2_sample = region_valid & (event_id == 1) & (active | region_pre_window)
+    o1_min = torch.where(o1_sample, torch.minimum(o1_min, contact_region_distance), o1_min)
+    o2_min = torch.where(o2_sample, torch.minimum(o2_min, contact_region_distance), o2_min)
+    o1_occ = o1_occ + (o1_sample & (contact_region_distance <= 1.0e-6)).to(torch.float32)
+    o1_samples = o1_samples + o1_sample.to(torch.float32)
+    o1_quality = torch.where(
+        o1_sample, torch.maximum(o1_quality, contact_region_arrival), o1_quality
+    )
+    o1_contact = o1_contact | (immediate_contact & (event_id == 0))
+    o2_given_o1 = o2_given_o1 | (
+        immediate_contact & (event_id == 1) & o1_contact
+    )
+    setattr(env, "_dribbling_s2_o1_min_region_distance", o1_min)
+    setattr(env, "_dribbling_s2_o2_min_region_distance", o2_min)
+    setattr(env, "_dribbling_s2_o1_region_occupancy", o1_occ)
+    setattr(env, "_dribbling_s2_o1_region_samples", o1_samples)
+    setattr(env, "_dribbling_s2_o1_region_quality", o1_quality)
+    setattr(env, "_dribbling_s2_o1_contact", o1_contact)
+    setattr(env, "_dribbling_s2_o2_given_o1", o2_given_o1)
+    command.s2_sequence_contact_succeeded.copy_(
+        valid_event_succeeded & (tracked_event == sequence_cursor)
+    )
+
+    relative_node_targets = bool(relative_node_targets)
+    actual_ball_relative = None
+    if relative_node_targets:
+        actual_ball_relative = quat_apply_inverse(
+            yaw_quat(command.robot_anchor_quat_w),
+            ball_pos_w - command.robot_anchor_pos_w,
+        )
+    current_ball_target_frame = actual_ball_relative if relative_node_targets else ball_pos_w
 
     target_lookup = getattr(command, "s2_next_touch_target_w", None)
     if callable(target_lookup):
@@ -1250,7 +2091,30 @@ def dribbling_s2_contact_event_state(
         next_event_frame = minus_one
         remaining_time = zeros
         target_valid = false
-    target_delta = next_anchor_w[:, :2] - ball_pos_w[:, :2]
+    next_window_end_lookup = getattr(
+        command, "s2_next_touch_window_end_frame", None
+    )
+    if callable(next_window_end_lookup):
+        next_event_end_frame = next_window_end_lookup(event_id)
+    else:
+        next_event_end_frame = next_event_frame
+    next_window_start_lookup = getattr(
+        command, "s2_next_touch_window_start_frame", None
+    )
+    if callable(next_window_start_lookup):
+        next_event_window_start_frame = next_window_start_lookup(event_id)
+    else:
+        next_event_window_start_frame = next_event_frame
+    if relative_node_targets:
+        relative_lookup = getattr(command, "s2_next_touch_node_relative_xy", None)
+        if not callable(relative_lookup):
+            raise RuntimeError("relative_node_targets requires the clean node compiler data")
+        node_xy, node_z, node_valid = relative_lookup(event_id)
+        next_anchor_w = torch.cat((node_xy, node_z.unsqueeze(-1)), dim=-1)
+        target_valid = target_valid & node_valid
+        target_delta = next_anchor_w[:, :2] - actual_ball_relative[:, :2]
+    else:
+        target_delta = next_anchor_w[:, :2] - ball_pos_w[:, :2]
     target_distance_out = torch.linalg.vector_norm(target_delta, dim=-1)
     target_direction = target_delta / target_distance_out.unsqueeze(-1).clamp(min=1.0e-6)
     nominal_speed = target_distance_out / remaining_time.clamp(min=1.0e-6)
@@ -1265,22 +2129,615 @@ def dribbling_s2_contact_event_state(
         1.0 + 0.5 * quality_streak.to(torch.float32), max=2.5
     )
     release["active"] = torch.where(latch_release, torch.ones_like(release["active"]), release["active"])
+    release["arrival_active"] = torch.where(
+        latch_release, torch.ones_like(release["arrival_active"]), release["arrival_active"]
+    )
     release["event_id"] = torch.where(latch_release, event_id, release["event_id"])
     release["touch_frame"] = torch.where(latch_release, frame, release["touch_frame"])
+    release["next_event_frame"] = torch.where(latch_release, next_event_frame, release["next_event_frame"])
+    release["next_event_window_start_frame"] = torch.where(
+        latch_release,
+        next_event_window_start_frame,
+        release["next_event_window_start_frame"],
+    )
+    release["next_event_end_frame"] = torch.where(
+        latch_release, next_event_end_frame, release["next_event_end_frame"]
+    )
     release["foot"] = torch.where(latch_release, expected_foot, release["foot"])
     release["next_anchor_w"] = torch.where(latch_release[:, None], next_anchor_w, release["next_anchor_w"])
     release["direction_w"] = torch.where(latch_release[:, None], target_direction, release["direction_w"])
     release["target_distance"] = torch.where(latch_release, target_distance_out, release["target_distance"])
     release["remaining_time"] = torch.where(latch_release, remaining_time, release["remaining_time"])
     release["nominal_speed"] = torch.where(latch_release, nominal_speed, release["nominal_speed"])
-    release["touch_ball_position"] = torch.where(latch_release[:, None], ball_pos_w, release["touch_ball_position"])
+    release["touch_ball_position"] = torch.where(
+        latch_release[:, None],
+        current_ball_target_frame if relative_node_targets else ball_pos_w,
+        release["touch_ball_position"],
+    )
+    release["arrival_best_distance"] = torch.where(
+        latch_release, target_distance_out, release["arrival_best_distance"]
+    )
+    release["arrival_previous_distance"] = torch.where(
+        latch_release, target_distance_out, release["arrival_previous_distance"]
+    )
+    release["arrival_previous_potential"] = torch.where(
+        latch_release, target_distance_out, release["arrival_previous_potential"]
+    )
     release["age"] = torch.where(latch_release, torch.zeros_like(release["age"]), release["age"])
     release["velocity_buffer"] = torch.where(
         latch_release[:, None, None], torch.zeros_like(release["velocity_buffer"]), release["velocity_buffer"]
     )
     release["multiplier"] = torch.where(latch_release, quality_multiplier, release["multiplier"])
+    command.s2_locked_next_anchor_w.copy_(release["next_anchor_w"])
+    command.s2_locked_next_anchor_valid.copy_(release["arrival_active"])
 
     release_pending = release["active"]
+    # The velocity reward is intentionally short, but the ball must still
+    # arrive at the next anchor.  This potential-difference term follows the
+    # latched world-frame target over the whole inter-contact interval.  It is
+    # reward-only: actor inputs remain the deployment-compatible 163-D state.
+    arrival_distance = torch.linalg.vector_norm(
+        current_ball_target_frame[:, :2] - release["next_anchor_w"][:, :2], dim=-1
+    )
+    route_displacement = (
+        current_ball_target_frame[:, :2] - release["touch_ball_position"][:, :2]
+    )
+    route_along = torch.sum(
+        route_displacement * release["direction_w"], dim=-1
+    )
+    route_lateral_vector = route_displacement - (
+        route_along.unsqueeze(-1) * release["direction_w"]
+    )
+    route_lateral_distance = torch.linalg.vector_norm(
+        route_lateral_vector, dim=-1
+    )
+    # Position-only potential.  The sparse annotations constrain only the
+    # next contact node, not the unobserved path between contact nodes, so the
+    # optimized potential is strictly Euclidean distance to the locked target.
+    # Lateral deviation from the source-to-target line remains telemetry only.
+    route_potential = arrival_distance
+    # Position-only release V2. It asks whether the ball displacement points
+    # toward the latched next anchor and actually reduces the remaining
+    # distance. No measured or synthesized ball speed enters this score.
+    release_displacement = ball_pos_w[:, :2] - release["touch_ball_position"][:, :2]
+    release_displacement_norm = torch.linalg.vector_norm(release_displacement, dim=-1)
+    release_direction_cosine = torch.sum(
+        release_displacement * release["direction_w"], dim=-1
+    ) / release_displacement_norm.clamp(min=1.0e-6)
+    release_direction_score_v2 = torch.where(
+        release_displacement_norm > 1.0e-6,
+        torch.clamp(release_direction_cosine, min=0.0, max=1.0),
+        torch.zeros_like(release_direction_cosine),
+    )
+    release_distance_progress_v2 = torch.clamp(
+        (release["target_distance"] - arrival_distance)
+        / release["target_distance"].clamp(min=1.0e-6),
+        min=0.0,
+        max=1.0,
+    )
+    release_v2_score = (
+        release_direction_score_v2
+        * release_distance_progress_v2
+        * release_pending.to(torch.float32)
+    )
+    # The next annotated segment, not a synthetic symmetric tolerance, owns
+    # the terminal arrival test.  For example O1=35--40 and O2=47--51 remain
+    # separate even though their gap is short.
+    transition_window_start = release["next_event_window_start_frame"]
+    transition_window_end = release["next_event_end_frame"]
+    arrival_active = release["arrival_active"] & (frame <= transition_window_end)
+    # Sparse annotations say where the ball must be during the next contact
+    # window, but do not define its path or require it to remain there after
+    # first arrival. Signed shaping therefore stops when that window begins;
+    # the absolute window-min tracking score below owns the terminal result.
+    progress_active = arrival_active & (frame < transition_window_start)
+    step_dt = max(float(getattr(env, "step_dt", 0.02)), 1.0e-6)
+    progress_limit = max(0.0, float(release_arrival_progress_max))
+    release_arrival_progress_raw = (
+        release["arrival_previous_potential"] - route_potential
+    ) / step_dt * progress_active.to(torch.float32)
+    release_arrival_progress = torch.clamp(
+        release_arrival_progress_raw,
+        min=-progress_limit,
+        max=progress_limit,
+    )
+    selected_contact_count_for_reward = getattr(
+        command, "s2_episode_contact_count", torch.zeros_like(event_id)
+    )
+    # C1 is deliberately contact-only. It must prove the strict O1 entry
+    # event without receiving credit for an unselected O1->O2 transition.
+    release_arrival_progress = release_arrival_progress * (
+        selected_contact_count_for_reward > 1
+    ).to(torch.float32)
+    release_arrival_progress_raw = release_arrival_progress_raw * (
+        selected_contact_count_for_reward > 1
+    ).to(torch.float32)
+    selected_first_event = getattr(command, "s2_episode_first_event_index", minus_one)
+    selected_contact_count = getattr(
+        command, "s2_episode_contact_count", torch.zeros_like(minus_one)
+    )
+    selected_last_event = selected_first_event + selected_contact_count - 1
+    terminal_release = (
+        (selected_contact_count > 0)
+        & (release["event_id"] == selected_last_event)
+    )
+    configured_terminal_progress_levels = tuple(
+        int(value)
+        for value in getattr(command.cfg, "dribble_cg_terminal_progress_levels", ())
+    )
+    if configured_terminal_progress_levels:
+        episode_level = command.s2_episode_curriculum_level.to(torch.long)
+        terminal_progress_enabled = torch.zeros_like(terminal_release)
+        for configured_level in configured_terminal_progress_levels:
+            terminal_progress_enabled |= episode_level == configured_level
+        # Internal transitions remain active at every level.  Only the
+        # outgoing transition of the last selected contact is staged: C2 can
+        # first stabilize O1/O2 without simultaneously changing O2's release.
+        release_arrival_progress = release_arrival_progress * (
+            ~terminal_release | terminal_progress_enabled
+        ).to(torch.float32)
+        release_arrival_progress_raw = release_arrival_progress_raw * (
+            ~terminal_release | terminal_progress_enabled
+        ).to(torch.float32)
+    terminal_progress_rate = release_arrival_progress * terminal_release.to(
+        torch.float32
+    )
+    terminal_progress_raw_rate = (
+        release_arrival_progress_raw * terminal_release.to(torch.float32)
+    )
+    terminal_progress_positive_rate = torch.clamp(terminal_progress_rate, min=0.0)
+    terminal_progress_negative_rate = torch.clamp(terminal_progress_rate, max=0.0)
+    release["arrival_best_distance"] = torch.where(
+        arrival_active,
+        torch.minimum(release["arrival_best_distance"], arrival_distance),
+        release["arrival_best_distance"],
+    )
+    release["arrival_previous_distance"] = torch.where(
+        arrival_active, arrival_distance, release["arrival_previous_distance"]
+    )
+    release["arrival_previous_potential"] = torch.where(
+        arrival_active, route_potential, release["arrival_previous_potential"]
+    )
+
+    # Keep continuous, position-only outgoing progress for shaping and
+    # telemetry.  It deliberately does not gate the contact cursor: a fixed
+    # displacement deadband cannot establish touch quality.  The next ordered
+    # physical contact is the transition outcome.
+    # Evaluate only the outgoing transition of the last selected contact. The
+    # following contact phase is present in the rollout but remains unselected,
+    # so this is a ball-arrival result rather than an extra physical-touch task.
+    terminal_transition_valid = getattr(
+        env, "_dribbling_s2_terminal_transition_valid", None
+    )
+    terminal_transition_success = getattr(
+        env, "_dribbling_s2_terminal_transition_success", None
+    )
+    terminal_transition_distance = getattr(
+        env, "_dribbling_s2_terminal_transition_distance", None
+    )
+    terminal_transition_start_distance = getattr(
+        env, "_dribbling_s2_terminal_transition_start_distance", None
+    )
+    terminal_transition_end_distance = getattr(
+        env, "_dribbling_s2_terminal_transition_end_distance", None
+    )
+    terminal_transition_net_progress = getattr(
+        env, "_dribbling_s2_terminal_transition_net_progress", None
+    )
+    if not isinstance(terminal_transition_valid, torch.Tensor) or terminal_transition_valid.shape[0] != env.num_envs:
+        terminal_transition_valid = false.clone()
+    if not isinstance(terminal_transition_success, torch.Tensor) or terminal_transition_success.shape[0] != env.num_envs:
+        terminal_transition_success = false.clone()
+    if not isinstance(terminal_transition_distance, torch.Tensor) or terminal_transition_distance.shape[0] != env.num_envs:
+        terminal_transition_distance = zeros.clone()
+    if not isinstance(terminal_transition_start_distance, torch.Tensor) or terminal_transition_start_distance.shape[0] != env.num_envs:
+        terminal_transition_start_distance = zeros.clone()
+    if not isinstance(terminal_transition_end_distance, torch.Tensor) or terminal_transition_end_distance.shape[0] != env.num_envs:
+        terminal_transition_end_distance = zeros.clone()
+    if not isinstance(terminal_transition_net_progress, torch.Tensor) or terminal_transition_net_progress.shape[0] != env.num_envs:
+        terminal_transition_net_progress = zeros.clone()
+    terminal_transition_valid = torch.where(
+        reset, torch.zeros_like(terminal_transition_valid), terminal_transition_valid
+    )
+    terminal_transition_success = torch.where(
+        reset, torch.zeros_like(terminal_transition_success), terminal_transition_success
+    )
+    terminal_transition_distance = torch.where(
+        reset, torch.zeros_like(terminal_transition_distance), terminal_transition_distance
+    )
+    terminal_transition_start_distance = torch.where(
+        reset,
+        torch.zeros_like(terminal_transition_start_distance),
+        terminal_transition_start_distance,
+    )
+    terminal_transition_end_distance = torch.where(
+        reset,
+        torch.zeros_like(terminal_transition_end_distance),
+        terminal_transition_end_distance,
+    )
+    terminal_transition_net_progress = torch.where(
+        reset,
+        torch.zeros_like(terminal_transition_net_progress),
+        terminal_transition_net_progress,
+    )
+    terminal_release_latched = latch_release & terminal_release
+    live_target_w = getattr(command, "s2_last_live_next_anchor_w", release["next_anchor_w"])
+    fixed_target_w = getattr(command, "s2_last_fixed_next_anchor_w", release["next_anchor_w"])
+    if relative_node_targets:
+        # In clean v0 these tensors carry the immutable reference-local node,
+        # not a world-space target.  The suffix is retained for compatibility
+        # with the historical diagnostic fields only.
+        live_target_w = release["next_anchor_w"]
+        fixed_target_w = release["next_anchor_w"]
+    locked_live_target_w = getattr(env, "_dribbling_s2_locked_live_target_w", None)
+    locked_fixed_target_w = getattr(env, "_dribbling_s2_locked_fixed_target_w", None)
+    fixed_window_min_distance = getattr(env, "_dribbling_s2_fixed_window_min_distance", None)
+    live_window_min_distance = getattr(env, "_dribbling_s2_live_window_min_distance", None)
+    fixed_window_min_frame = getattr(env, "_dribbling_s2_fixed_window_min_frame", None)
+    if not isinstance(locked_live_target_w, torch.Tensor) or locked_live_target_w.shape != release["next_anchor_w"].shape:
+        locked_live_target_w = torch.zeros_like(release["next_anchor_w"])
+        locked_fixed_target_w = torch.zeros_like(release["next_anchor_w"])
+        fixed_window_min_distance = torch.full_like(zeros, torch.inf)
+        live_window_min_distance = torch.full_like(zeros, torch.inf)
+        fixed_window_min_frame = torch.full_like(frame, -1)
+    locked_live_target_w = torch.where(reset[:, None], torch.zeros_like(locked_live_target_w), locked_live_target_w)
+    locked_fixed_target_w = torch.where(reset[:, None], torch.zeros_like(locked_fixed_target_w), locked_fixed_target_w)
+    fixed_window_min_distance = torch.where(reset, torch.full_like(zeros, torch.inf), fixed_window_min_distance)
+    live_window_min_distance = torch.where(reset, torch.full_like(zeros, torch.inf), live_window_min_distance)
+    fixed_window_min_frame = torch.where(reset, torch.full_like(frame, -1), fixed_window_min_frame)
+    locked_live_target_w = torch.where(terminal_release_latched[:, None], live_target_w, locked_live_target_w)
+    locked_fixed_target_w = torch.where(terminal_release_latched[:, None], fixed_target_w, locked_fixed_target_w)
+    fixed_window_min_distance = torch.where(terminal_release_latched, torch.full_like(zeros, torch.inf), fixed_window_min_distance)
+    live_window_min_distance = torch.where(terminal_release_latched, torch.full_like(zeros, torch.inf), live_window_min_distance)
+    fixed_window_min_frame = torch.where(terminal_release_latched, torch.full_like(frame, -1), fixed_window_min_frame)
+    terminal_transition_valid = torch.where(
+        terminal_release_latched,
+        torch.zeros_like(terminal_transition_valid),
+        terminal_transition_valid,
+    )
+    terminal_transition_success = torch.where(
+        terminal_release_latched,
+        torch.zeros_like(terminal_transition_success),
+        terminal_transition_success,
+    )
+    terminal_transition_start_distance = torch.where(
+        terminal_release_latched,
+        release["target_distance"],
+        terminal_transition_start_distance,
+    )
+    terminal_transition_end_distance = torch.where(
+        terminal_release_latched,
+        torch.zeros_like(terminal_transition_end_distance),
+        terminal_transition_end_distance,
+    )
+    terminal_transition_net_progress = torch.where(
+        terminal_release_latched,
+        torch.zeros_like(terminal_transition_net_progress),
+        terminal_transition_net_progress,
+    )
+    terminal_transition_window = (
+        release["arrival_active"]
+        & terminal_release
+        & (frame >= transition_window_start)
+        & (frame <= transition_window_end)
+    )
+    fixed_distance_now = torch.linalg.vector_norm(
+        current_ball_target_frame[:, :2] - locked_fixed_target_w[:, :2], dim=-1
+    )
+    live_distance_now = torch.linalg.vector_norm(
+        current_ball_target_frame[:, :2] - locked_live_target_w[:, :2], dim=-1
+    )
+    fixed_new_min = terminal_transition_window & (fixed_distance_now < fixed_window_min_distance)
+    fixed_window_min_distance = torch.where(
+        terminal_transition_window,
+        torch.minimum(fixed_window_min_distance, fixed_distance_now),
+        fixed_window_min_distance,
+    )
+    live_window_min_distance = torch.where(
+        terminal_transition_window,
+        torch.minimum(live_window_min_distance, live_distance_now),
+        live_window_min_distance,
+    )
+    fixed_window_min_frame = torch.where(fixed_new_min, frame, fixed_window_min_frame)
+    target_shift_xy = locked_fixed_target_w[:, :2] - locked_live_target_w[:, :2]
+    target_shift_distance = torch.linalg.vector_norm(target_shift_xy, dim=-1)
+    setattr(env, "_dribbling_s2_locked_live_target_w", locked_live_target_w)
+    setattr(env, "_dribbling_s2_locked_fixed_target_w", locked_fixed_target_w)
+    setattr(env, "_dribbling_s2_fixed_window_min_distance", fixed_window_min_distance)
+    setattr(env, "_dribbling_s2_live_window_min_distance", live_window_min_distance)
+    setattr(env, "_dribbling_s2_fixed_window_min_frame", fixed_window_min_frame)
+    # Position-only outcome at the time where the next sparse contact is
+    # annotated.  Normalize by the distance latched at the outgoing touch so
+    # this introduces neither a centimetre threshold nor a reference speed:
+    #   0  = no net improvement from the outgoing contact,
+    #   >0 = closer to the locked next anchor during its contact window,
+    #   <0 = farther away than at the outgoing contact.
+    # The inter-contact potential above supplies direction shaping; this term
+    # supplies the missing time-window semantics.
+    terminal_window_position_outcome = torch.clamp(
+        1.0
+        - arrival_distance
+        / terminal_transition_start_distance.clamp(min=1.0e-6),
+        min=-1.0,
+        max=1.0,
+    ) * terminal_transition_window.to(torch.float32)
+    if configured_terminal_progress_levels:
+        terminal_window_position_outcome = terminal_window_position_outcome * (
+            terminal_progress_enabled
+        ).to(torch.float32)
+    terminal_transition_evaluated = terminal_transition_window & (
+        frame >= transition_window_end
+    )
+    terminal_tracking_quality = zeros.clone()
+    terminal_tracking_pulse = zeros.clone()
+
+    # Event-level window-average outcome used by the matched Level-1 A/B
+    # probe.  The accumulator is always executed (including in the weight-zero
+    # control task) so telemetry and state transitions are identical between
+    # the two arms.  It is initialized exactly once by the outgoing terminal
+    # contact (O2 at Level 1), samples only the locked I3 contact window, and
+    # emits at most one rate pulse.  RewardManager multiplies this rate by dt,
+    # leaving the configured term weight to scale the event average directly.
+    outcome_active = getattr(env, "_dribbling_s2_window_outcome_active", None)
+    outcome_source_event_id = getattr(env, "_dribbling_s2_window_outcome_source_event_id", None)
+    outcome_target_event_id = getattr(env, "_dribbling_s2_window_outcome_target_event_id", None)
+    outcome_candidate_frame = getattr(env, "_dribbling_s2_window_outcome_candidate_frame", None)
+    outcome_start_distance = getattr(env, "_dribbling_s2_window_outcome_start_distance", None)
+    outcome_score_sum = getattr(env, "_dribbling_s2_window_outcome_score_sum", None)
+    outcome_sample_count = getattr(env, "_dribbling_s2_window_outcome_sample_count", None)
+    outcome_last_score = getattr(env, "_dribbling_s2_window_outcome_last_score", None)
+    outcome_emitted = getattr(env, "_dribbling_s2_window_outcome_emitted", None)
+    if not isinstance(outcome_active, torch.Tensor) or outcome_active.shape[0] != env.num_envs:
+        outcome_active = false.clone()
+        outcome_source_event_id = torch.full_like(frame, -1)
+        outcome_target_event_id = torch.full_like(frame, -1)
+        outcome_candidate_frame = torch.full_like(frame, -1)
+        outcome_start_distance = zeros.clone()
+        outcome_score_sum = zeros.clone()
+        outcome_sample_count = zeros.clone()
+        outcome_last_score = zeros.clone()
+        outcome_emitted = false.clone()
+    outcome_active = torch.where(reset, false, outcome_active)
+    outcome_source_event_id = torch.where(reset, torch.full_like(frame, -1), outcome_source_event_id)
+    outcome_target_event_id = torch.where(reset, torch.full_like(frame, -1), outcome_target_event_id)
+    outcome_candidate_frame = torch.where(reset, torch.full_like(frame, -1), outcome_candidate_frame)
+    outcome_start_distance = torch.where(reset, zeros, outcome_start_distance)
+    outcome_score_sum = torch.where(reset, zeros, outcome_score_sum)
+    outcome_sample_count = torch.where(reset, zeros, outcome_sample_count)
+    outcome_last_score = torch.where(reset, zeros, outcome_last_score)
+    outcome_emitted = torch.where(reset, false, outcome_emitted)
+
+    legacy_window_outcome_enabled = bool(
+        getattr(command.cfg, "dribble_cg_enable_legacy_window_outcome", False)
+    )
+    initialize_outcome = (
+        terminal_release_latched
+        & ~outcome_active
+        & ~outcome_emitted
+        & legacy_window_outcome_enabled
+    )
+    outcome_active = outcome_active | initialize_outcome
+    outcome_source_event_id = torch.where(initialize_outcome, release["event_id"], outcome_source_event_id)
+    outcome_target_event_id = torch.where(initialize_outcome, release["event_id"] + 1, outcome_target_event_id)
+    outcome_candidate_frame = torch.where(initialize_outcome, frame, outcome_candidate_frame)
+    outcome_start_distance = torch.where(initialize_outcome, release["target_distance"], outcome_start_distance)
+    outcome_score_sum = torch.where(initialize_outcome, zeros, outcome_score_sum)
+    outcome_sample_count = torch.where(initialize_outcome, zeros, outcome_sample_count)
+    outcome_last_score = torch.where(initialize_outcome, zeros, outcome_last_score)
+
+    outcome_sample = outcome_active & terminal_transition_window & ~outcome_emitted
+    outcome_step_score = torch.clamp(
+        (outcome_start_distance - arrival_distance)
+        / outcome_start_distance.clamp(min=1.0e-6),
+        min=-1.0,
+        max=1.0,
+    )
+    outcome_score_sum = outcome_score_sum + torch.where(outcome_sample, outcome_step_score, zeros)
+    outcome_sample_count = outcome_sample_count + outcome_sample.to(torch.float32)
+    outcome_last_score = torch.where(outcome_sample, outcome_step_score, outcome_last_score)
+
+    env_done = getattr(env, "reset_buf", false)
+    if not isinstance(env_done, torch.Tensor) or env_done.shape[0] != env.num_envs:
+        env_done = false
+    else:
+        env_done = env_done.to(torch.bool)
+    settle_normal = outcome_active & terminal_transition_evaluated & ~outcome_emitted
+    settle_partial = outcome_active & env_done & (outcome_sample_count > 0) & ~outcome_emitted
+    settle = settle_normal | settle_partial
+    outcome_score_average = torch.where(
+        outcome_sample_count > 0,
+        outcome_score_sum / outcome_sample_count.clamp(min=1.0),
+        zeros,
+    )
+    outcome_pulse = torch.where(
+        settle,
+        outcome_score_average / max(float(getattr(env, "step_dt", 0.02)), 1.0e-6),
+        zeros,
+    )
+    outcome_settlement_quality = torch.where(
+        settle,
+        torch.clamp(
+            torch.minimum(outcome_score_average, outcome_last_score),
+            min=0.0,
+            max=1.0,
+        ),
+        zeros,
+    )
+    # Unlike the diagnostic/additive outcome rate above, settlement shares
+    # the exact pulse convention of candidate and closure rewards.  Returning
+    # q (not q / dt) makes a configured weight of 15 carry the same maximum
+    # event budget as the existing closure weight of 15 after RewardManager's
+    # common dt multiplication.
+    outcome_settlement_pulse = torch.where(
+        settle, outcome_settlement_quality, zeros
+    )
+    ball_lost_done = false
+    try:
+        ball_lost_done = env.termination_manager.get_term("ball_lost").to(torch.bool)
+    except (KeyError, AttributeError):
+        pass
+    outcome_aborted = outcome_active & env_done & (outcome_sample_count <= 0) & ~outcome_emitted
+    outcome_aborted_ball_lost = outcome_aborted & ball_lost_done
+    outcome_aborted_other = outcome_aborted & ~ball_lost_done
+    outcome_emitted = outcome_emitted | settle
+    outcome_active = outcome_active & ~settle & ~outcome_aborted
+
+    setattr(env, "_dribbling_s2_window_outcome_active", outcome_active)
+    setattr(env, "_dribbling_s2_window_outcome_source_event_id", outcome_source_event_id)
+    setattr(env, "_dribbling_s2_window_outcome_target_event_id", outcome_target_event_id)
+    setattr(env, "_dribbling_s2_window_outcome_candidate_frame", outcome_candidate_frame)
+    setattr(env, "_dribbling_s2_window_outcome_start_distance", outcome_start_distance)
+    setattr(env, "_dribbling_s2_window_outcome_score_sum", outcome_score_sum)
+    setattr(env, "_dribbling_s2_window_outcome_sample_count", outcome_sample_count)
+    setattr(env, "_dribbling_s2_window_outcome_last_score", outcome_last_score)
+    setattr(env, "_dribbling_s2_window_outcome_emitted", outcome_emitted)
+    terminal_transition_mode = str(
+        getattr(command.cfg, "dribble_cg_terminal_transition_mode", "arrival_radius")
+    )
+    if terminal_transition_mode == "positive_final_progress":
+        # Evaluate the final state, not the minimum distance seen on the way.
+        # This rejects the observed exploit in which O2 passes near I3 early
+        # and the ball has already rolled away by the labelled I3 window.
+        terminal_transition_valid = (
+            terminal_transition_valid | terminal_transition_evaluated
+        )
+        final_positive = (
+            arrival_distance < terminal_transition_start_distance
+        )
+        terminal_transition_success = torch.where(
+            terminal_transition_evaluated,
+            final_positive,
+            terminal_transition_success,
+        )
+        terminal_transition_end_distance = torch.where(
+            terminal_transition_evaluated,
+            arrival_distance,
+            terminal_transition_end_distance,
+        )
+        terminal_transition_net_progress = torch.where(
+            terminal_transition_evaluated,
+            terminal_transition_start_distance - arrival_distance,
+            terminal_transition_net_progress,
+        )
+        terminal_transition_distance = terminal_transition_end_distance
+    elif terminal_transition_mode == "absolute_window_min":
+        # Clean sparse-node tracking: the annotation says that the ball center
+        # should visit the fixed next node at some point in its labelled
+        # contact window.  It does not say that the ball must remain there at
+        # the window end, and it provides no reference velocity or path.
+        # Therefore the result is the absolute minimum XY distance in the
+        # complete window, never a relative improvement from the outgoing
+        # touch.  The only scale is the physical ball radius.
+        terminal_arrival_scale = max(
+            float(getattr(command.cfg, "dribble_cg_ball_radius", 0.11)),
+            1.0e-6,
+        )
+        finite_window_min = torch.isfinite(fixed_window_min_distance)
+        evaluated_with_sample = terminal_transition_evaluated & finite_window_min
+        terminal_tracking_quality_now = torch.exp(
+            -0.5
+            * torch.square(
+                fixed_window_min_distance / terminal_arrival_scale
+            )
+        )
+        terminal_tracking_quality = torch.where(
+            evaluated_with_sample,
+            terminal_tracking_quality_now,
+            terminal_tracking_quality,
+        )
+        if configured_terminal_progress_levels:
+            reward_evaluated = evaluated_with_sample & terminal_progress_enabled
+        else:
+            reward_evaluated = evaluated_with_sample
+        # Event pulse convention matches physical candidate rewards.  Isaac
+        # Lab applies dt uniformly afterwards, so the configured weight is the
+        # event budget and this quality remains in [0, 1].
+        terminal_tracking_pulse = torch.where(
+            reward_evaluated,
+            terminal_tracking_quality_now,
+            terminal_tracking_pulse,
+        )
+        terminal_transition_valid = (
+            terminal_transition_valid | evaluated_with_sample
+        )
+        terminal_transition_success = torch.where(
+            evaluated_with_sample,
+            fixed_window_min_distance <= terminal_arrival_scale,
+            terminal_transition_success,
+        )
+        terminal_transition_distance = torch.where(
+            evaluated_with_sample,
+            fixed_window_min_distance,
+            terminal_transition_distance,
+        )
+        terminal_transition_end_distance = torch.where(
+            evaluated_with_sample,
+            arrival_distance,
+            terminal_transition_end_distance,
+        )
+        terminal_transition_net_progress = torch.where(
+            evaluated_with_sample,
+            terminal_transition_start_distance - fixed_window_min_distance,
+            terminal_transition_net_progress,
+        )
+    elif terminal_transition_mode == "arrival_radius":
+        terminal_arrival_scale = (
+            float(contact_anchor_max_distance)
+            if contact_anchor_max_distance is not None
+            else float(getattr(command.cfg, "dribble_cg_ball_radius", 0.11))
+        )
+        terminal_transition_success = terminal_transition_success | (
+            terminal_transition_window
+            & (arrival_distance <= max(terminal_arrival_scale, 1.0e-6))
+        )
+        terminal_transition_valid = terminal_transition_valid | terminal_transition_evaluated
+        terminal_transition_center = terminal_transition_window & (
+            frame == release["next_event_frame"]
+        )
+        terminal_transition_distance = torch.where(
+            terminal_transition_center,
+            arrival_distance,
+            terminal_transition_distance,
+        )
+    else:
+        raise ValueError(
+            "Unsupported dribble_cg_terminal_transition_mode: "
+            f"{terminal_transition_mode!r}"
+        )
+    setattr(env, "_dribbling_s2_terminal_transition_valid", terminal_transition_valid)
+    setattr(env, "_dribbling_s2_terminal_transition_success", terminal_transition_success)
+    setattr(
+        env,
+        "_dribbling_s2_terminal_transition_distance",
+        terminal_transition_distance,
+    )
+    setattr(
+        env,
+        "_dribbling_s2_terminal_transition_start_distance",
+        terminal_transition_start_distance,
+    )
+    setattr(
+        env,
+        "_dribbling_s2_terminal_transition_end_distance",
+        terminal_transition_end_distance,
+    )
+    setattr(
+        env,
+        "_dribbling_s2_terminal_transition_net_progress",
+        terminal_transition_net_progress,
+    )
+    arrival_active_after_qualification = arrival_active
+    release["arrival_active"] = arrival_active_after_qualification
+    command.s2_locked_next_anchor_valid.copy_(arrival_active_after_qualification)
+    command.s2_sequence_contact_succeeded.copy_(
+        valid_event_succeeded & (tracked_event == sequence_cursor)
+    )
+    # Once a touch is accepted, holding the ball at the *old* anchor conflicts
+    # directly with the release target at the next anchor.  The anchor term is
+    # strictly pre-touch shaping; contact and release terms own the transition.
+    contact_anchor_arrival = contact_anchor_arrival * (
+        ~valid_event_succeeded & ~release_pending
+    ).to(torch.float32)
     approach_progress_reward = approach_progress_reward * (
         ~release_pending
     ).to(torch.float32)
@@ -1357,6 +2814,9 @@ def dribbling_s2_contact_event_state(
     release_quality_pass = release_finished & (
         release_base_score >= float(release_quality_threshold)
     )
+    release_v2_quality_pass = release_finished & (
+        release_v2_score >= float(release_v2_quality_threshold)
+    )
     quality_streak = torch.where(
         release_finished,
         torch.where(
@@ -1405,13 +2865,20 @@ def dribbling_s2_contact_event_state(
     setattr(env, "_dribbling_s2_occurrence_seen", occurrence_seen)
     setattr(env, "_dribbling_s2_event_grace_count", grace_count)
 
-    wrong_foot = active & new_physical_contact & legal_ankle & ~correct_foot & require_expected_foot
+    wrong_foot = (
+        event_contact_claim
+        & legal_ankle
+        & ~correct_foot
+        & require_expected_foot
+        & sequence_eligible
+    )
     premature_candidate = (
         ~active
         & (upcoming_event_id >= 0)
         & (frame < upcoming_event_frame)
         & new_physical_contact
         & legal_ankle
+        & (upcoming_event_id == sequence_cursor)
     )
     premature_tracked_event = getattr(env, "_dribbling_s2_premature_tracked_event", None)
     premature_seen = getattr(env, "_dribbling_s2_premature_seen", None)
@@ -1477,16 +2944,16 @@ def dribbling_s2_contact_event_state(
     success_count = _episode_counter("_dribbling_s2_success_count", completed_success)
     missed_count = _episode_counter("_dribbling_s2_missed_count", missed_valid_contact)
     touch_attempt_count = _episode_counter(
-        "_dribbling_s2_touch_attempt_count", active & new_physical_contact
+        "_dribbling_s2_touch_attempt_count", event_contact_claim
     )
     correct_foot_count = _episode_counter(
-        "_dribbling_s2_correct_foot_count", expected_foot_touch
+        "_dribbling_s2_correct_foot_count", expected_foot_claim
     )
     occurrence_count = _episode_counter(
         "_dribbling_s2_occurrence_count", touch_occurrence
     )
     side_attempt_count = _episode_counter(
-        "_dribbling_s2_side_attempt_count", expected_foot_touch & side_known
+        "_dribbling_s2_side_attempt_count", expected_foot_claim & side_known
     )
     valid_contact_count = _episode_counter(
         "_dribbling_s2_valid_contact_count", surface_style > 0.0
@@ -1498,6 +2965,10 @@ def dribbling_s2_contact_event_state(
         "_dribbling_s2_premature_contact_count", premature_contact
     )
     invalid_body_count = _episode_counter("_dribbling_s2_invalid_body_count", invalid_body_contact)
+    out_of_sequence_count = _episode_counter(
+        "_dribbling_s2_out_of_sequence_contact_count",
+        out_of_sequence_contact,
+    )
     target_distance_sum = _episode_counter(
         "_dribbling_s2_target_distance_sum", target_distance * active.to(target_distance.dtype)
     )
@@ -1507,17 +2978,17 @@ def dribbling_s2_contact_event_state(
     timing_count = _episode_counter("_dribbling_s2_timing_count", touch_occurrence)
     touch_force_sum = _episode_counter(
         "_dribbling_s2_touch_force_sum",
-        force_magnitude * expected_foot_touch.to(force_magnitude.dtype),
+        force_magnitude * immediate_contact.to(force_magnitude.dtype),
     )
     touch_force_count = _episode_counter(
-        "_dribbling_s2_touch_force_count", expected_foot_touch
+        "_dribbling_s2_touch_force_count", immediate_contact
     )
     touch_force_max = getattr(env, "_dribbling_s2_touch_force_max", None)
     if not isinstance(touch_force_max, torch.Tensor) or touch_force_max.shape[0] != env.num_envs:
         touch_force_max = torch.zeros(env.num_envs, dtype=force_magnitude.dtype, device=env.device)
     touch_force_max = torch.where(reset, torch.zeros_like(touch_force_max), touch_force_max)
     touch_force_max = torch.where(
-        expected_foot_touch,
+        immediate_contact,
         torch.maximum(touch_force_max, force_magnitude),
         touch_force_max,
     )
@@ -1557,22 +3028,45 @@ def dribbling_s2_contact_event_state(
     max_streak = torch.maximum(max_streak, streak)
     setattr(env, "_dribbling_s2_success_streak", streak)
     setattr(env, "_dribbling_s2_max_success_streak", max_streak)
+    # One pulse per completed side-valid event.  Its value increases with the
+    # consecutive sequence length, making later successful touches worth more
+    # than repeatedly solving only the first contact.  Cap at eight so the
+    # full-clip tail remains useful without overwhelming release quality.
+    sequence_progress = completed_success.to(torch.float32) * torch.clamp(
+        streak.to(torch.float32), max=8.0
+    )
 
     first_release_quality = getattr(env, "_dribbling_s2_first_release_quality", None)
+    first_release_quality_v2 = getattr(
+        env, "_dribbling_s2_first_release_quality_v2", None
+    )
     conditional_second_success = getattr(
         env, "_dribbling_s2_second_touch_conditional_success", None
     )
+    conditional_second_success_v2 = getattr(
+        env, "_dribbling_s2_second_touch_conditional_success_v2", None
+    )
     if not isinstance(first_release_quality, torch.Tensor) or first_release_quality.shape[0] != env.num_envs:
         first_release_quality = false.clone()
+    if not isinstance(first_release_quality_v2, torch.Tensor) or first_release_quality_v2.shape[0] != env.num_envs:
+        first_release_quality_v2 = false.clone()
     if not isinstance(conditional_second_success, torch.Tensor) or conditional_second_success.shape[0] != env.num_envs:
         conditional_second_success = false.clone()
+    if not isinstance(conditional_second_success_v2, torch.Tensor) or conditional_second_success_v2.shape[0] != env.num_envs:
+        conditional_second_success_v2 = false.clone()
     first_release_quality = first_release_quality & ~reset
+    first_release_quality_v2 = first_release_quality_v2 & ~reset
     conditional_second_success = conditional_second_success & ~reset
-    first_event_index = getattr(command, "s2_episode_first_event_index", minus_one)
+    conditional_second_success_v2 = conditional_second_success_v2 & ~reset
     real_sequence = ~acquisition
     first_release_quality = first_release_quality | (
         real_sequence
         & release_quality_pass
+        & (finished_release_event == first_event_index)
+    )
+    first_release_quality_v2 = first_release_quality_v2 | (
+        real_sequence
+        & release_v2_quality_pass
         & (finished_release_event == first_event_index)
     )
     second_touch_pulse = (
@@ -1582,11 +3076,28 @@ def dribbling_s2_contact_event_state(
         & first_release_quality
     )
     conditional_second_success = conditional_second_success | second_touch_pulse
+    second_touch_pulse_v2 = (
+        real_sequence
+        & immediate_contact
+        & (event_id == first_event_index + 1)
+        & first_release_quality_v2
+    )
+    conditional_second_success_v2 = (
+        conditional_second_success_v2 | second_touch_pulse_v2
+    )
     setattr(env, "_dribbling_s2_first_release_quality", first_release_quality)
+    setattr(
+        env, "_dribbling_s2_first_release_quality_v2", first_release_quality_v2
+    )
     setattr(
         env,
         "_dribbling_s2_second_touch_conditional_success",
         conditional_second_success,
+    )
+    setattr(
+        env,
+        "_dribbling_s2_second_touch_conditional_success_v2",
+        conditional_second_success_v2,
     )
 
     def _rate(numerator: torch.Tensor, denominator: torch.Tensor) -> torch.Tensor:
@@ -1604,14 +3115,28 @@ def dribbling_s2_contact_event_state(
     command.metrics["s2_wrong_side_count"] = wrong_side_count
     command.metrics["s2_premature_contact_count"] = premature_contact_count
     command.metrics["s2_invalid_body_contact_count"] = invalid_body_count
+    command.metrics["s2_out_of_sequence_contact_count"] = out_of_sequence_count
+    command.metrics["s2_contact_rearmed"] = contact_rearmed.to(torch.float32)
+    command.metrics["s2_contact_release_off_count"] = release_off_count.to(torch.float32)
+    command.metrics["s2_contact_release_confirmed"] = release_confirmed.to(torch.float32)
+    command.metrics["s2_sequence_cursor"] = sequence_cursor.to(torch.float32)
+    command.metrics["s2_ordered_transition_completion"] = (
+        ordered_transition_completion.to(torch.float32)
+    )
     command.metrics["s2_target_region_distance"] = _rate(
         target_distance_sum, target_distance_count
+    )
+    command.metrics["s2_next_anchor_lateral_distance"] = torch.where(
+        arrival_active, route_lateral_distance, torch.zeros_like(route_lateral_distance)
     )
     command.metrics["s2_touch_force_mean"] = _rate(touch_force_sum, touch_force_count)
     command.metrics["s2_touch_force_max"] = touch_force_max
     command.metrics["s2_dead_zone_count"] = dead_zone_count
     command.metrics["s2_complete_2"] = (max_streak >= 2).to(torch.float32)
+    command.metrics["s2_complete_3"] = (max_streak >= 3).to(torch.float32)
     command.metrics["s2_complete_4"] = (max_streak >= 4).to(torch.float32)
+    command.metrics["s2_complete_5"] = (max_streak >= 5).to(torch.float32)
+    command.metrics["s2_complete_6"] = (max_streak >= 6).to(torch.float32)
     command.metrics["s2_complete_8"] = (max_streak >= 8).to(torch.float32)
     selected_count = getattr(command, "s2_episode_contact_count", None)
     if isinstance(selected_count, torch.Tensor):
@@ -1619,12 +3144,88 @@ def dribbling_s2_contact_event_state(
             (selected_count > 0) & (max_streak >= selected_count)
         ).to(torch.float32)
     command.metrics["s2_approach_progress"] = approach_progress_reward
+    command.metrics["s2_coarse_contact_approach"] = coarse_contact_approach
+    command.metrics["s2_anchor_approach_progress_v2"] = anchor_approach_progress_v2
+    if contact_regions_available:
+        command.metrics["s2_contact_region_progress_v3"] = contact_region_progress_v3
+        command.metrics["s2_contact_region_arrival"] = contact_region_arrival
+        command.metrics["s2_o1_min_region_distance"] = torch.where(
+            torch.isfinite(o1_min), o1_min, zeros
+        )
+        command.metrics["s2_o1_region_occupancy_rate"] = o1_occ / o1_samples.clamp(min=1.0)
+        command.metrics["s2_o1_region_arrival_quality"] = o1_quality
+        command.metrics["s2_o2_min_region_distance"] = torch.where(
+            torch.isfinite(o2_min), o2_min, zeros
+        )
+        command.metrics["s2_nearest_region_point_id"] = nearest_region_point_id.to(torch.float32)
+        command.metrics["s2_nearest_region_point_timing"] = nearest_region_point_timing.to(torch.float32)
+    else:
+        for metric_name in (
+            "s2_contact_region_progress_v3",
+            "s2_contact_region_arrival",
+            "s2_o1_min_region_distance",
+            "s2_o1_region_occupancy_rate",
+            "s2_o1_region_arrival_quality",
+            "s2_o2_min_region_distance",
+            "s2_nearest_region_point_id",
+            "s2_nearest_region_point_timing",
+        ):
+            command.metrics.pop(metric_name, None)
+    command.metrics["s2_o1_filtered_contact_rate"] = o1_contact.to(torch.float32)
+    command.metrics["s2_o2_given_o1_contact_rate"] = o2_given_o1.to(torch.float32)
     command.metrics["s2_immediate_contact"] = immediate_contact.to(torch.float32)
     command.metrics["s2_release_pending"] = release_pending.to(torch.float32)
     command.metrics["s2_release_score"] = release_score
+    command.metrics["s2_release_v2_score"] = release_v2_score
+    command.metrics["s2_next_anchor_progress"] = release_arrival_progress
+    command.metrics["s2_terminal_progress_raw_rate"] = terminal_progress_raw_rate
+    command.metrics["s2_terminal_progress_clipped_rate"] = terminal_progress_rate
+    command.metrics["s2_terminal_progress_positive_rate"] = (
+        terminal_progress_positive_rate
+    )
+    command.metrics["s2_terminal_progress_negative_rate"] = (
+        terminal_progress_negative_rate
+    )
+    command.metrics["s2_contact_anchor_quality"] = contact_anchor_quality
+    command.metrics["s2_terminal_transition_valid"] = terminal_transition_valid.to(torch.float32)
+    command.metrics["s2_terminal_transition_success"] = terminal_transition_success.to(torch.float32)
+    command.metrics["s2_terminal_transition_distance"] = terminal_transition_distance
+    command.metrics["s2_terminal_transition_start_distance"] = (
+        terminal_transition_start_distance
+    )
+    command.metrics["s2_terminal_transition_end_distance"] = (
+        terminal_transition_end_distance
+    )
+    command.metrics["s2_terminal_transition_net_progress"] = (
+        terminal_transition_net_progress
+    )
+    command.metrics["s2_terminal_tracking_quality"] = terminal_tracking_quality
+    command.metrics["s2_terminal_tracking_pulse"] = terminal_tracking_pulse
+    command.metrics["s2_terminal_window_position_outcome"] = (
+        terminal_window_position_outcome
+    )
+    command.metrics["s2_window_outcome_score_average"] = outcome_score_average
+    command.metrics["s2_window_outcome_score_end"] = outcome_last_score
+    command.metrics["s2_window_outcome_settlement_quality"] = outcome_settlement_quality
+    command.metrics["s2_window_outcome_settlement_pulse"] = outcome_settlement_pulse
+    command.metrics["s2_window_outcome_pulse"] = outcome_pulse
+    command.metrics["s2_window_outcome_sample_count"] = outcome_sample_count
+    command.metrics["s2_window_outcome_aborted_ball_lost"] = outcome_aborted_ball_lost.to(torch.float32)
+    command.metrics["s2_window_outcome_aborted_other"] = outcome_aborted_other.to(torch.float32)
+    command.metrics["s2_fixed_target_shift_distance"] = target_shift_distance
+    command.metrics["s2_fixed_window_min_distance"] = torch.where(
+        torch.isfinite(fixed_window_min_distance), fixed_window_min_distance, zeros
+    )
+    command.metrics["s2_live_window_min_distance"] = torch.where(
+        torch.isfinite(live_window_min_distance), live_window_min_distance, zeros
+    )
     command.metrics["s2_release_quality_pass"] = release_quality_pass.to(torch.float32)
+    command.metrics["s2_release_v2_quality_pass"] = release_v2_quality_pass.to(torch.float32)
+    command.metrics["s2_first_release_quality"] = first_release_quality.to(torch.float32)
+    command.metrics["s2_first_release_quality_v2"] = first_release_quality_v2.to(torch.float32)
     command.metrics["s2_quality_streak"] = quality_streak.to(torch.float32)
     command.metrics["s2_second_touch_conditional_success"] = conditional_second_success.to(torch.float32)
+    command.metrics["s2_second_touch_conditional_success_v2"] = conditional_second_success_v2.to(torch.float32)
     command.metrics["s2_reset_mode"] = reset_mode.to(torch.float32)
     command.metrics["s2_acquisition_success_rate"] = torch.where(
         acquisition, (max_streak >= 1).to(torch.float32), zeros
@@ -1632,26 +3233,108 @@ def dribbling_s2_contact_event_state(
     command.metrics["s2_acquisition_history_steps_before_contact"] = acquisition_history_at_contact
 
     state = {
+        # Snapshot the decision frame. ``command.time_steps`` is updated
+        # in-place after manager evaluation; retaining its tensor view would
+        # make playback report the following frame instead of the frame that
+        # actually produced this contact decision.
+        "evaluation_frame": frame.detach().clone(),
         "contact_window": active,
         "approach_progress": approach_progress_reward,
+        "coarse_contact_approach": coarse_contact_approach,
+        "anchor_approach_progress_v2": anchor_approach_progress_v2,
+        "contact_region_progress_v3": contact_region_progress_v3,
+        "contact_region_arrival": contact_region_arrival,
+        "contact_region_distance": contact_region_distance,
+        "contact_region_valid": region_valid,
+        "nearest_region_point_id": nearest_region_point_id,
+        "nearest_region_point_timing": nearest_region_point_timing,
+        "ball_in_actual_foot_full": ball_in_actual_foot,
         "contact_proximity": proximity,
         "target_region_distance": target_distance,
+        "contact_anchor_distance": contact_anchor_distance,
+        "contact_anchor_quality": contact_anchor_quality,
+        "contact_anchor_arrival": contact_anchor_arrival,
         "physical_foot_ball_distance": physical_foot_ball_distance,
         "touch_occurrence": touch_occurrence,
         "immediate_contact": immediate_contact,
         "surface_style": surface_style,
         "valid_contact_event": valid_contact_event,
+        "pair_terminal_region_quality_pass": pair_terminal_region_quality_pass,
+        # Contact/release-gate telemetry.  These are diagnostics only: they
+        # expose why a physical onset was (or was not) allowed to become the
+        # next labelled touch without changing the contact decision itself.
+        "contact_has_force": has_contact,
+        "contact_previous_has_force": previous_contact,
+        "contact_new_physical_onset": new_physical_contact,
+        "contact_event_claim": event_contact_claim,
+        "contact_event_owns_physical": event_owns_physical_contact,
+        "contact_closest_body": closest_body,
+        "contact_correct_foot": correct_foot,
+        "contact_side_correct": side_correct,
+        "contact_coarse_longitudinal_pass": coarse_longitudinal_pass,
+        "contact_anchor_valid_touch": anchor_valid_touch,
+        "contact_rearmed": contact_rearmed,
+        "contact_release_off_count": release_off_count,
+        "contact_release_confirmed": release_confirmed,
+        "contact_left_claimed_region": left_claimed_region,
+        "contact_claimed_region_distance": claimed_region_distance,
+        "contact_physical_episode": physical_episode,
+        "contact_claimed_episode": claimed_episode,
+        "contact_claimed_event": claimed_event,
         "contact_force_magnitude": force_magnitude,
         "dead_zone": dead_zone,
         "wrong_foot": wrong_foot,
         "wrong_side": wrong_side,
         "premature_contact": premature_contact,
         "invalid_body_contact": invalid_body_contact,
+        "out_of_sequence_contact": out_of_sequence_contact,
+        "sequence_eligible": sequence_eligible,
+        "sequence_cursor": sequence_cursor,
         "nonfoot_contact_penalty": nonfoot_contact_penalty,
         "wrong_foot_contact_penalty": wrong_foot_contact_penalty,
         "premature_contact_penalty": premature_contact_penalty,
         "missed_valid_contact": missed_valid_contact,
         "release_pending": release_pending,
+        "release_arrival_progress": release_arrival_progress,
+        "terminal_release": terminal_release,
+        "terminal_transition_window": terminal_transition_window,
+        "terminal_progress_raw_rate": terminal_progress_raw_rate,
+        "terminal_progress_clipped_rate": terminal_progress_rate,
+        "terminal_progress_positive_rate": terminal_progress_positive_rate,
+        "terminal_progress_negative_rate": terminal_progress_negative_rate,
+        "terminal_transition_valid": terminal_transition_valid,
+        "terminal_transition_success": terminal_transition_success,
+        "terminal_transition_distance": terminal_transition_distance,
+        "terminal_transition_start_distance": terminal_transition_start_distance,
+        "terminal_transition_end_distance": terminal_transition_end_distance,
+        "terminal_transition_net_progress": terminal_transition_net_progress,
+        "terminal_tracking_quality": terminal_tracking_quality,
+        "terminal_tracking_pulse": terminal_tracking_pulse,
+        "terminal_window_position_outcome": terminal_window_position_outcome,
+        "window_outcome_active": outcome_active,
+        "window_outcome_source_event_id": outcome_source_event_id,
+        "window_outcome_target_event_id": outcome_target_event_id,
+        "window_outcome_candidate_frame": outcome_candidate_frame,
+        "window_outcome_start_distance": outcome_start_distance,
+        "window_outcome_score_sum": outcome_score_sum,
+        "window_outcome_sample_count": outcome_sample_count,
+        "window_outcome_score_average": outcome_score_average,
+        "window_outcome_score_end": outcome_last_score,
+        "window_outcome_settlement_quality": outcome_settlement_quality,
+        "window_outcome_settlement_pulse": outcome_settlement_pulse,
+        "window_outcome_pulse": outcome_pulse,
+        "window_outcome_emitted": settle,
+        "window_outcome_aborted_ball_lost": outcome_aborted_ball_lost,
+        "window_outcome_aborted_other": outcome_aborted_other,
+        "locked_live_target_w": locked_live_target_w,
+        "locked_fixed_target_w": locked_fixed_target_w,
+        "fixed_target_shift_xy": target_shift_xy,
+        "fixed_target_shift_distance": target_shift_distance,
+        "fixed_window_distance": fixed_distance_now,
+        "live_window_distance": live_distance_now,
+        "fixed_window_min_distance": fixed_window_min_distance,
+        "live_window_min_distance": live_window_min_distance,
+        "fixed_window_min_frame": fixed_window_min_frame,
         "release_actual_touch_frame": release["touch_frame"],
         "release_next_anchor_w": release["next_anchor_w"],
         "release_remaining_time": release["remaining_time"],
@@ -1663,9 +3346,13 @@ def dribbling_s2_contact_event_state(
         "release_speed_ratio": speed_ratio,
         "release_separation_score": separation_score,
         "release_score": release_score,
+        "release_v2_score": release_v2_score,
         "release_quality_pass": release_quality_pass,
+        "release_v2_quality_pass": release_v2_quality_pass,
         "quality_streak": quality_streak,
+        "sequence_progress": sequence_progress,
         "second_touch_conditional_success": conditional_second_success,
+        "second_touch_conditional_success_v2": conditional_second_success_v2,
         "acquisition_invalid_early_contact": acquisition_invalid_early_contact,
         "acquisition_history_steps_before_contact": acquisition_history_at_contact,
         "timing_error_seconds": timing_error,
@@ -1695,9 +3382,35 @@ def dribbling_s2_contact_event_state(
         {
             key: state[key]
             for key in (
+                "evaluation_frame",
                 "approach_progress",
                 "immediate_contact",
+                "valid_contact_event",
                 "surface_style",
+                "contact_has_force",
+                "contact_previous_has_force",
+                "contact_new_physical_onset",
+                "contact_event_claim",
+                "contact_event_owns_physical",
+                "contact_closest_body",
+                "contact_correct_foot",
+                "contact_side_correct",
+                "contact_coarse_longitudinal_pass",
+                "contact_anchor_valid_touch",
+                "contact_rearmed",
+                "contact_release_off_count",
+                "contact_release_confirmed",
+                "contact_left_claimed_region",
+                "contact_claimed_region_distance",
+                "contact_physical_episode",
+                "contact_claimed_episode",
+                "contact_claimed_event",
+                "contact_region_distance",
+                "contact_region_valid",
+                "pair_terminal_region_quality_pass",
+                "nearest_region_point_id",
+                "nearest_region_point_timing",
+                "ball_in_actual_foot_full",
                 "release_pending",
                 "release_actual_touch_frame",
                 "release_next_anchor_w",
@@ -1710,6 +3423,45 @@ def dribbling_s2_contact_event_state(
                 "release_speed_ratio",
                 "release_separation_score",
                 "release_score",
+                "release_arrival_progress",
+                "terminal_release",
+                "terminal_transition_window",
+                "terminal_progress_raw_rate",
+                "terminal_progress_clipped_rate",
+                "terminal_progress_positive_rate",
+                "terminal_progress_negative_rate",
+                "terminal_transition_valid",
+                "terminal_transition_success",
+                "terminal_transition_start_distance",
+                "terminal_transition_end_distance",
+                "terminal_transition_net_progress",
+                "terminal_tracking_quality",
+                "terminal_tracking_pulse",
+                "terminal_window_position_outcome",
+                "window_outcome_active",
+                "window_outcome_source_event_id",
+                "window_outcome_target_event_id",
+                "window_outcome_candidate_frame",
+                "window_outcome_start_distance",
+                "window_outcome_score_sum",
+                "window_outcome_sample_count",
+                "window_outcome_score_average",
+                "window_outcome_score_end",
+                "window_outcome_settlement_quality",
+                "window_outcome_settlement_pulse",
+                "window_outcome_pulse",
+                "window_outcome_emitted",
+                "window_outcome_aborted_ball_lost",
+                "window_outcome_aborted_other",
+                "locked_live_target_w",
+                "locked_fixed_target_w",
+                "fixed_target_shift_xy",
+                "fixed_target_shift_distance",
+                "fixed_window_distance",
+                "live_window_distance",
+                "fixed_window_min_distance",
+                "live_window_min_distance",
+                "fixed_window_min_frame",
                 "release_quality_pass",
                 "quality_streak",
                 "second_touch_conditional_success",
@@ -1746,7 +3498,7 @@ def dribbling_s2_contact_proximity(
 
 def dribbling_s2_approach_progress(
     env: ManagerBasedRLEnv,
-    **event_params,
+    event_params: dict,
 ) -> torch.Tensor:
     """Potential-difference approach shaping outside the final 0.30 seconds."""
     return dribbling_s2_contact_event_state(env, **event_params)[
@@ -1754,11 +3506,260 @@ def dribbling_s2_approach_progress(
     ]
 
 
-def dribbling_s2_immediate_contact_bonus(
+def dribbling_s2_coarse_contact_approach(
     env: ManagerBasedRLEnv,
-    **event_params,
+    event_params: dict,
 ) -> torch.Tensor:
-    """One pulse for a new in-window contact by the expected foot."""
+    """Signed current-cursor foot progress toward the real ball and correct side."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "coarse_contact_approach"
+    ]
+
+
+def dribbling_s2_anchor_approach_progress_v2(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Signed progress toward the current cursor's foot-local contact anchor."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "anchor_approach_progress_v2"
+    ]
+
+
+def dribbling_s2_contact_region_progress_v3(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Signed distance progress toward the frozen feasible contact region."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "contact_region_progress_v3"
+    ]
+
+
+def dribbling_s2_contact_region_arrival(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Continuous in-window quality for the frozen feasible contact region."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "contact_region_arrival"
+    ]
+
+
+def _dribbling_s2_transition_region_state(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    event_params: dict,
+    progress_max: float,
+    arrival_std: float,
+) -> dict[str, torch.Tensor]:
+    """Latch and evaluate the V3 region after the last selected C2 touch."""
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    contact = dribbling_s2_contact_event_state(env, **event_params)
+    frame = command.time_steps.to(torch.long)
+    generation = command.s2_episode_generation.to(torch.long)
+    cache = getattr(env, "_dribbling_s2_t2_cache", None)
+    if (
+        isinstance(cache, dict)
+        and torch.equal(cache.get("frame", torch.empty(0, device=env.device)), frame)
+        and torch.equal(cache.get("generation", torch.empty(0, device=env.device)), generation)
+    ):
+        return cache["state"]
+
+    zeros = torch.zeros(env.num_envs, device=env.device)
+    false = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    previous_generation = getattr(env, "_dribbling_s2_t2_generation", None)
+    if not isinstance(previous_generation, torch.Tensor):
+        previous_generation = generation.clone()
+    reset = generation != previous_generation
+    setattr(env, "_dribbling_s2_t2_generation", generation.clone())
+
+    selected_last = (
+        command.s2_episode_first_event_index
+        + command.s2_episode_contact_count
+        - 1
+    )
+    t2_enabled = command.s2_episode_curriculum_level.to(torch.long) >= 1
+    outgoing_touch = (
+        contact["immediate_contact"].to(torch.bool)
+        & (contact["event_id"].to(torch.long) == selected_last)
+        & (command.s2_episode_contact_count == 2)
+        & t2_enabled
+    )
+    points_w, point_valid, next_frame, next_end = (
+        command.s2_next_contact_region_target_w(selected_last)
+    )
+    point_count = points_w.shape[1]
+
+    locked_points = getattr(env, "_dribbling_s2_t2_points_w", None)
+    locked_mask = getattr(env, "_dribbling_s2_t2_point_valid", None)
+    locked_active = getattr(env, "_dribbling_s2_t2_active", None)
+    locked_frame = getattr(env, "_dribbling_s2_t2_frame", None)
+    locked_end = getattr(env, "_dribbling_s2_t2_end", None)
+    previous_distance = getattr(env, "_dribbling_s2_t2_previous_distance", None)
+    previous_active = getattr(env, "_dribbling_s2_t2_previous_active", None)
+    success = getattr(env, "_dribbling_s2_t2_success", None)
+    evaluated = getattr(env, "_dribbling_s2_t2_evaluated", None)
+    if not isinstance(locked_points, torch.Tensor) or locked_points.shape != points_w.shape:
+        locked_points = torch.zeros_like(points_w)
+        locked_mask = torch.zeros_like(point_valid)
+        locked_active = false.clone()
+        locked_frame = torch.full_like(frame, -1)
+        locked_end = torch.full_like(frame, -1)
+        previous_distance = zeros.clone()
+        previous_active = false.clone()
+        success = false.clone()
+        evaluated = false.clone()
+
+    if bool(torch.any(reset)):
+        locked_points[reset] = 0.0
+        locked_mask[reset] = False
+        locked_active[reset] = False
+        locked_frame[reset] = -1
+        locked_end[reset] = -1
+        previous_distance[reset] = 0.0
+        previous_active[reset] = False
+        success[reset] = False
+        evaluated[reset] = False
+
+    latch = outgoing_touch & point_valid.any(dim=1) & (next_end >= next_frame)
+    locked_points = torch.where(latch[:, None, None], points_w, locked_points)
+    locked_mask = torch.where(latch[:, None], point_valid, locked_mask)
+    locked_active = torch.where(latch, torch.ones_like(locked_active), locked_active)
+    locked_frame = torch.where(latch, next_frame, locked_frame)
+    locked_end = torch.where(latch, next_end, locked_end)
+    success = torch.where(latch, torch.zeros_like(success), success)
+    evaluated = torch.where(latch, torch.zeros_like(evaluated), evaluated)
+
+    ball_w = env.scene["soccer_ball"].data.root_pos_w[:, :3]
+    point_distance = torch.linalg.vector_norm(
+        ball_w.unsqueeze(1) - locked_points, dim=-1
+    )
+    point_distance = torch.where(
+        locked_mask, point_distance, torch.full_like(point_distance, torch.inf)
+    )
+    cover_radius = max(
+        0.0, float(getattr(command, "_s2_contact_region_cover_radius", 0.0))
+    )
+    distance = torch.clamp(torch.min(point_distance, dim=1).values - cover_radius, min=0.0)
+    distance = torch.where(locked_active, distance, zeros)
+    transition_active = locked_active & (frame <= locked_end)
+    same_phase = transition_active & previous_active & ~latch
+    step_dt = max(float(getattr(env, "step_dt", 0.02)), 1.0e-6)
+    progress = torch.clamp(
+        (previous_distance - distance) / step_dt,
+        min=-max(0.0, float(progress_max)),
+        max=max(0.0, float(progress_max)),
+    ) * same_phase.to(torch.float32)
+    in_window = transition_active & (frame >= locked_frame) & (frame <= locked_end)
+    scale = max(float(arrival_std), 1.0e-6)
+    arrival = torch.exp(-torch.square(distance / scale)) * in_window.to(torch.float32)
+    success = success | (in_window & (distance <= 1.0e-6))
+    evaluated = evaluated | (locked_active & (frame >= locked_end))
+
+    previous_distance = torch.where(transition_active, distance, zeros)
+    previous_active = transition_active
+    locked_active = locked_active & (frame <= locked_end)
+    for name, value in (
+        ("_dribbling_s2_t2_points_w", locked_points),
+        ("_dribbling_s2_t2_point_valid", locked_mask),
+        ("_dribbling_s2_t2_active", locked_active),
+        ("_dribbling_s2_t2_frame", locked_frame),
+        ("_dribbling_s2_t2_end", locked_end),
+        ("_dribbling_s2_t2_previous_distance", previous_distance),
+        ("_dribbling_s2_t2_previous_active", previous_active),
+        ("_dribbling_s2_t2_success", success),
+        ("_dribbling_s2_t2_evaluated", evaluated),
+    ):
+        setattr(env, name, value)
+
+    # The critic retains its fixed 314-D interface: its existing next-anchor
+    # slot now contains the centroid of exactly the same locked V3 region.
+    centroid = (locked_points * locked_mask.unsqueeze(-1)).sum(dim=1) / locked_mask.sum(
+        dim=1, keepdim=True
+    ).clamp(min=1)
+    command.s2_locked_next_anchor_w.copy_(centroid)
+    command.s2_locked_next_anchor_valid.copy_(transition_active)
+    command.metrics["s2_t2_region_progress"] = progress
+    command.metrics["s2_t2_region_arrival"] = arrival
+    command.metrics["s2_t2_region_distance"] = distance
+    command.metrics["s2_t2_success"] = success.to(torch.float32)
+    command.metrics["s2_terminal_transition_valid"] = evaluated.to(torch.float32)
+    command.metrics["s2_terminal_transition_success"] = success.to(torch.float32)
+    command.metrics["s2_terminal_transition_distance"] = distance
+    state = {
+        "progress": progress,
+        "arrival": arrival,
+        "distance": distance,
+        "success": success,
+        "evaluated": evaluated,
+    }
+    setattr(env, "_dribbling_s2_t2_cache", {
+        "frame": frame.clone(), "generation": generation.clone(), "state": state
+    })
+    return state
+
+
+def dribbling_s2_transition_region_progress(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    event_params: dict,
+    progress_max: float = 4.0,
+    arrival_std: float = 0.02,
+) -> torch.Tensor:
+    return _dribbling_s2_transition_region_state(
+        env, command_name, event_params, progress_max, arrival_std
+    )["progress"]
+
+
+def dribbling_s2_transition_region_arrival(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    event_params: dict,
+    progress_max: float = 4.0,
+    arrival_std: float = 0.02,
+) -> torch.Tensor:
+    return _dribbling_s2_transition_region_state(
+        env, command_name, event_params, progress_max, arrival_std
+    )["arrival"]
+
+
+def dribbling_s2_contact_anchor_arrival(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Reward physical ball proximity to the current labelled contact anchor."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "contact_anchor_arrival"
+    ]
+
+
+def dribbling_s2_effective_touch_bonus(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Reward completion of the preceding contact-to-contact transition.
+
+    A pulse occurs only when the next strict ordered physical candidate is
+    observed: O2 verifies O1->O2, I3 verifies O2->I3, and so on.  This reward
+    does not use a displacement deadband and does not control cursor advance.
+    """
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "valid_contact_event"
+    ].to(torch.float32)
+
+
+def dribbling_s2_physical_contact_candidate_bonus(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Reward one real current-window foot-ball contact discovery pulse.
+
+    Clean-v0 deliberately keeps this pulse small.  It establishes the
+    discrete contact fact; the outgoing ball result is evaluated separately
+    by the fixed next-node progress/arrival terms, not by a second
+    effective/closure payment on the same collision.
+    """
     return dribbling_s2_contact_event_state(env, **event_params)[
         "immediate_contact"
     ].to(torch.float32)
@@ -1766,18 +3767,80 @@ def dribbling_s2_immediate_contact_bonus(
 
 def dribbling_s2_next_touch_release(
     env: ManagerBasedRLEnv,
-    **event_params,
+    event_params: dict,
 ) -> torch.Tensor:
     """Score the latched eight-step outgoing release toward the next anchor."""
     return dribbling_s2_contact_event_state(env, **event_params)["release_score"]
 
 
+def dribbling_s2_next_touch_release_v2(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Score position displacement toward the latched next anchor."""
+    return dribbling_s2_contact_event_state(env, **event_params)["release_v2_score"]
+
+
+def dribbling_s2_next_anchor_progress(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Reward signed distance progress until the next contact window starts."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "release_arrival_progress"
+    ]
+
+
+def dribbling_s2_next_anchor_window_tracking(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Reward absolute fixed-node tracking at the next contact window.
+
+    The pulse is emitted once, after the complete labelled window, from the
+    minimum ball-center distance to the immutable episode-fixed next anchor.
+    No live root transform, relative-improvement test, ball velocity, or
+    intermediate trajectory is used.
+    """
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "terminal_tracking_pulse"
+    ]
+
+
+def dribbling_s2_next_window_outcome(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Emit the once-per-transition window-average position outcome rate."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "window_outcome_pulse"
+    ]
+
+
+def dribbling_s2_delayed_transition_settlement(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Settle a pending touch from the worse of window-average and end quality."""
+    return dribbling_s2_contact_event_state(env, **event_params)[
+        "window_outcome_settlement_pulse"
+    ]
+
+
 def dribbling_s2_surface_style(
     env: ManagerBasedRLEnv,
-    **event_params,
+    event_params: dict,
 ) -> torch.Tensor:
     """Low-weight labelled inside/outside style pulse for a legal touch."""
     return dribbling_s2_contact_event_state(env, **event_params)["surface_style"]
+
+
+def dribbling_s2_sequence_progress_bonus(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Increasing one-pulse bonus for each consecutively completed S2 event."""
+    return dribbling_s2_contact_event_state(env, **event_params)["sequence_progress"]
 
 
 def dribbling_s2_global_foot_ball_distance_exp(
@@ -1916,6 +3979,29 @@ def dribbling_s2_nonfoot_ball_contact_penalty(
     )["nonfoot_contact_penalty"]
 
 
+def dribbling_s2_nonfoot_contact_termination(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Terminate a clean transition on a filtered non-foot ball contact."""
+    return dribbling_s2_contact_event_state(env, **event_params)["invalid_body_contact"]
+
+
+def dribbling_s2_missed_contact_termination(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """Terminate a clean rollout when its expected window is missed.
+
+    The event-state function emits this pulse exactly when the labelled
+    window (plus the configured grace interval) closes.  It is deliberately
+    separate from the reward pulse: motion tracking may continue in legacy
+    tasks, while clean-v0 treats a missed node as an ordinary episode
+    failure and resets the external reference clock/LSTM.
+    """
+    return dribbling_s2_contact_event_state(env, **event_params)["missed_valid_contact"]
+
+
 def dribbling_s2_wrong_foot_contact_penalty(
     env: ManagerBasedRLEnv,
     command_name: str = "motion",
@@ -1930,14 +4016,31 @@ def dribbling_s2_wrong_foot_contact_penalty(
     proximity_approach_seconds: float = 0.30,
     proximity_approach_min_weight: float = 0.20,
     missed_contact_grace_steps: int = 3,
+    event_params: dict | None = None,
 ) -> torch.Tensor:
     """Return one pulse for an in-window legal-ankle touch by the wrong foot."""
+    if event_params is not None:
+        return dribbling_s2_contact_event_state(env, **event_params)[
+            "wrong_foot_contact_penalty"
+        ]
     return dribbling_s2_contact_event_state(
         env, command_name, ball_sensor_name, all_body_cfg, num_ankle_links,
         require_expected_foot, target_side_enabled,
         side_deadzone, proximity_contact_distance_max, target_region_std, proximity_approach_seconds,
         proximity_approach_min_weight, missed_contact_grace_steps,
     )["wrong_foot_contact_penalty"]
+
+
+def dribbling_s2_wrong_side_contact_penalty(
+    env: ManagerBasedRLEnv,
+    event_params: dict,
+) -> torch.Tensor:
+    """One pulse when the expected foot touches from the labelled wrong side.
+
+    The side is the sign of the physical ball centre in the expected ankle's
+    yaw-local frame; no mesh contact-point classification is assumed.
+    """
+    return dribbling_s2_contact_event_state(env, **event_params)["wrong_side"].to(torch.float32)
 
 
 def dribbling_s2_premature_contact_penalty(
@@ -1954,8 +4057,13 @@ def dribbling_s2_premature_contact_penalty(
     proximity_approach_seconds: float = 0.30,
     proximity_approach_min_weight: float = 0.20,
     missed_contact_grace_steps: int = 3,
+    event_params: dict | None = None,
 ) -> torch.Tensor:
     """Return at most one premature-contact pulse per selected target event."""
+    if event_params is not None:
+        return dribbling_s2_contact_event_state(env, **event_params)[
+            "premature_contact_penalty"
+        ]
     return dribbling_s2_contact_event_state(
         env, command_name, ball_sensor_name, all_body_cfg, num_ankle_links,
         require_expected_foot, target_side_enabled,
@@ -2031,9 +4139,9 @@ def dribbling_s2_windowed_foot_tracking_exp(
             ramp_scale = 1.0 - (1.0 - contact_scale) * progress
             target_scale = torch.where(approach, ramp_scale, target_scale)
 
-        # Once the event time has passed, retain the minimum scale until the
-        # symmetric contact window closes.  Before the event, the ramp above
-        # continues smoothly even though the window has already opened.
+        # Once the event begins, retain the minimum scale through the complete
+        # annotated contact segment.  The pre-event ramp is separate from the
+        # segment and does not create an additional valid-contact window.
         post_event_window = window & (
             command.time_steps.to(torch.long) >= command.s2_contact_event_frame_ref
         )

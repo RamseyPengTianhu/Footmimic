@@ -178,6 +178,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     )
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
+    # Some checked-in assets contain undecodable bytes.  RSL-RL's optional
+    # source snapshot then crashes after the first rollout while writing a
+    # UTF-8 git diff; training state itself is unaffected.
+    runner.git_status_repos = []
     # save resume path before creating a new log_dir
     if agent_cfg.resume:
         # get path to previous checkpoint

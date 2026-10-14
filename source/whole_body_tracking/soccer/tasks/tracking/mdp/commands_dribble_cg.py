@@ -25,11 +25,14 @@ labels are not part of the 6.0.3 contract.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
+import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTermCfg
-from isaaclab.markers import VisualizationMarkers
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply, quat_inv, quat_mul, yaw_quat
 
@@ -76,6 +79,38 @@ class DribbleCGMotionCommand(MotionCommand):
         self.s2_episode_first_event_index = torch.full(
             (env.num_envs,), -1, dtype=torch.long, device=env.device
         )
+        # Shared causal task state for the asymmetric S2 critic and reward.
+        # It is reset after curriculum sampling and advanced only by an
+        # accepted physical contact; reference time is never allowed to move
+        # this cursor on its own.
+        self.s2_sequence_cursor = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=env.device
+        )
+        self.s2_sequence_contact_succeeded = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        # Reward latches this world-space target on an accepted touch.  The
+        # critic consumes the same tensor on the following observation step;
+        # it must not reconstruct a moving target from the live alignment.
+        self.s2_locked_next_anchor_w = torch.zeros(
+            env.num_envs, 3, dtype=torch.float32, device=env.device
+        )
+        self.s2_locked_next_anchor_valid = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        # Reset-time task-frame transform.  When enabled, every sparse event
+        # anchor in an episode is mapped through this immutable XY+yaw frame;
+        # policy motion before O2 can therefore not move the I3 target.
+        self.s2_episode_reference_root_w = torch.zeros(env.num_envs, 3, device=env.device)
+        self.s2_episode_actual_root_w = torch.zeros(env.num_envs, 3, device=env.device)
+        self.s2_episode_yaw_alignment = torch.zeros(env.num_envs, 4, device=env.device)
+        self.s2_episode_yaw_alignment[:, 0] = 1.0
+        self.s2_last_live_next_anchor_w = torch.zeros(env.num_envs, 3, device=env.device)
+        self.s2_last_fixed_next_anchor_w = torch.zeros(env.num_envs, 3, device=env.device)
+        self.s2_last_fixed_target_valid = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        self.s2_last_fixed_inverse_error = torch.zeros(env.num_envs, device=env.device)
         # Reset provenance: 0 = real frame-0 sequence, 1 = teacher-provided
         # pre-second-touch acquisition state.  Acquisition episodes never
         # enter promotion statistics.
@@ -130,6 +165,24 @@ class DribbleCGMotionCommand(MotionCommand):
         )
         super().__init__(cfg, env)
         self._build_s2_contact_event_table()
+        event_slots = self._s2_contact_anchor_ref_padded.shape[1]
+        # The clean task materializes every sparse reference node once per
+        # episode, immediately after reset alignment.  Reward code only gathers
+        # from these immutable tensors; policy root/foot motion cannot move the
+        # current or next target later in the rollout.
+        self.s2_episode_fixed_contact_anchors_w = torch.zeros(
+            env.num_envs, event_slots, 3, device=env.device
+        )
+        self.s2_episode_fixed_next_anchors_w = torch.zeros_like(
+            self.s2_episode_fixed_contact_anchors_w
+        )
+        self.s2_episode_fixed_contact_anchor_valid = torch.zeros(
+            env.num_envs, event_slots, dtype=torch.bool, device=env.device
+        )
+        self.s2_episode_fixed_next_anchor_valid = torch.zeros_like(
+            self.s2_episode_fixed_contact_anchor_valid
+        )
+        self._load_s2_contact_regions()
         for metric_name in (
             "s2_contact_success_rate",
             "s2_missed_contact_rate",
@@ -140,6 +193,7 @@ class DribbleCGMotionCommand(MotionCommand):
             "s2_contact_timing_error",
             "s2_contact_timing_abs_error",
             "s2_target_region_distance",
+            "s2_contact_anchor_quality",
             "s2_touch_force_mean",
             "s2_touch_force_max",
             "s2_dead_zone_count",
@@ -147,17 +201,71 @@ class DribbleCGMotionCommand(MotionCommand):
             "s2_wrong_side_count",
             "s2_premature_contact_count",
             "s2_invalid_body_contact_count",
+            "s2_out_of_sequence_contact_count",
+            "s2_contact_rearmed",
+            "s2_contact_release_off_count",
+            "s2_contact_release_confirmed",
+            "s2_sequence_cursor",
             "s2_complete_2",
+            "s2_complete_3",
             "s2_complete_4",
+            "s2_complete_5",
+            "s2_complete_6",
             "s2_complete_8",
             "s2_complete_selected",
             "s2_approach_progress",
+            "s2_coarse_contact_approach",
+            "s2_anchor_approach_progress_v2",
+            "s2_contact_region_progress_v3",
+            "s2_contact_region_arrival",
+            "s2_o1_min_region_distance",
+            "s2_o1_region_occupancy_rate",
+            "s2_o1_region_arrival_quality",
+            "s2_o1_filtered_contact_rate",
+            "s2_o2_min_region_distance",
+            "s2_o2_given_o1_contact_rate",
+            "s2_nearest_region_point_id",
+            "s2_nearest_region_point_timing",
             "s2_immediate_contact",
             "s2_release_pending",
             "s2_release_score",
+            "s2_release_v2_score",
+            "s2_next_anchor_progress",
+            "s2_terminal_progress_raw_rate",
+            "s2_terminal_progress_clipped_rate",
+            "s2_terminal_progress_positive_rate",
+            "s2_terminal_progress_negative_rate",
+            "s2_terminal_transition_valid",
+            "s2_terminal_transition_success",
+            "s2_terminal_transition_distance",
+            "s2_terminal_transition_start_distance",
+            "s2_terminal_transition_end_distance",
+            "s2_terminal_transition_net_progress",
+            "s2_terminal_tracking_quality",
+            "s2_terminal_tracking_pulse",
+            "s2_terminal_window_position_outcome",
+            "s2_window_outcome_score_average",
+            "s2_window_outcome_score_end",
+            "s2_window_outcome_settlement_quality",
+            "s2_window_outcome_settlement_pulse",
+            "s2_window_outcome_pulse",
+            "s2_window_outcome_sample_count",
+            "s2_window_outcome_aborted_ball_lost",
+            "s2_window_outcome_aborted_other",
+            "s2_fixed_target_shift_distance",
+            "s2_fixed_window_min_distance",
+            "s2_live_window_min_distance",
+            "s2_t2_region_progress",
+            "s2_t2_region_arrival",
+            "s2_t2_region_distance",
+            "s2_t2_success",
             "s2_release_quality_pass",
+            "s2_release_v2_quality_pass",
+            "s2_first_release_quality",
+            "s2_first_release_quality_v2",
             "s2_quality_streak",
             "s2_second_touch_conditional_success",
+            "s2_second_touch_conditional_success_v2",
             "s2_reset_mode",
             "s2_acquisition_success_rate",
             "s2_acquisition_history_steps_before_contact",
@@ -165,12 +273,194 @@ class DribbleCGMotionCommand(MotionCommand):
             self.metrics[metric_name] = torch.zeros(self.num_envs, device=self.device)
         self._validate_fixed_touch_spec()
 
+    def _load_s2_contact_regions(self) -> None:
+        """Load a frozen offline contact-region sidecar for the active motion."""
+        region_path = str(getattr(self.cfg, "dribble_cg_contact_region_path", "")).strip()
+        self._s2_contact_regions_available = False
+        self._s2_contact_region_points = torch.zeros(
+            (1, 1, 3), dtype=torch.float32, device=self.device
+        )
+        self._s2_contact_region_valid = torch.zeros(
+            (1, 1), dtype=torch.bool, device=self.device
+        )
+        self._s2_contact_region_timing = torch.zeros(
+            (1, 1), dtype=torch.long, device=self.device
+        )
+        self._s2_contact_region_source_id = torch.full(
+            (1, 1), -1, dtype=torch.long, device=self.device
+        )
+        self._s2_contact_region_cover_radius = 0.0
+        if not region_path:
+            return
+        if int(self.motion.num_files) != 1:
+            raise ValueError(
+                "A single contact-region sidecar currently requires exactly one motion"
+            )
+        path = Path(region_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"S2 contact-region sidecar not found: {path}")
+        with np.load(path) as source:
+            required = {
+                "points", "valid", "timing_offset", "source_sample_id",
+                "anchor_frame", "expected_foot", "surface", "cover_radius",
+            }
+            missing = sorted(required.difference(source.files))
+            if missing:
+                raise ValueError(f"{path}: missing {missing}")
+            points = np.asarray(source["points"], dtype=np.float32)
+            valid = np.asarray(source["valid"], dtype=bool)
+            timing = np.asarray(source["timing_offset"], dtype=np.int64)
+            source_id = np.asarray(source["source_sample_id"], dtype=np.int64)
+            frames = np.asarray(source["anchor_frame"], dtype=np.int64)
+            feet = np.asarray(source["expected_foot"], dtype=np.int64)
+            surfaces = np.asarray(source["surface"], dtype=np.int64)
+            cover_radius = float(np.asarray(source["cover_radius"]).item())
+        if points.ndim != 3 or points.shape[-1] != 3:
+            raise ValueError(f"{path}: points must have shape [events, points, 3]")
+        if valid.shape != points.shape[:2] or timing.shape != valid.shape or source_id.shape != valid.shape:
+            raise ValueError(f"{path}: region arrays have incompatible shapes")
+        expected_frames = self._s2_event_frames_by_motion[0].detach().cpu().numpy()
+        if not np.array_equal(frames, expected_frames):
+            raise ValueError(
+                f"{path}: anchor frames {frames.tolist()} do not match motion {expected_frames.tolist()}"
+            )
+        motion_idx = torch.zeros(len(frames), dtype=torch.long, device=self.device)
+        event_frames = torch.as_tensor(frames, dtype=torch.long, device=self.device)
+        expected_feet = self.motion.dribble_cg_foot[motion_idx, event_frames].detach().cpu().numpy()
+        expected_surfaces = self.motion.dribble_cg_surface[motion_idx, event_frames].detach().cpu().numpy()
+        if not np.array_equal(feet, expected_feet) or not np.array_equal(surfaces, expected_surfaces):
+            raise ValueError(f"{path}: foot/surface labels do not match the motion")
+        if cover_radius <= 0.0:
+            raise ValueError(f"{path}: cover_radius must be positive")
+        self._s2_contact_region_points = torch.as_tensor(
+            points, dtype=torch.float32, device=self.device
+        )
+        self._s2_contact_region_valid = torch.as_tensor(
+            valid, dtype=torch.bool, device=self.device
+        )
+        self._s2_contact_region_timing = torch.as_tensor(
+            timing, dtype=torch.long, device=self.device
+        )
+        self._s2_contact_region_source_id = torch.as_tensor(
+            source_id, dtype=torch.long, device=self.device
+        )
+        self._s2_contact_region_cover_radius = cover_radius
+        self._s2_contact_regions_available = True
+        print(
+            f"[INFO] S2 contact regions: {path} "
+            f"events={points.shape[0]} max_points={points.shape[1]} "
+            f"cover_radius={cover_radius:.4f} m"
+        )
+
+    def s2_contact_region(
+        self, event_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return points, mask, timing, source ids, and validity for event ids."""
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        event_count = self._s2_contact_region_points.shape[0]
+        safe_event = event_id.clamp(min=0, max=max(0, event_count - 1))
+        points = self._s2_contact_region_points[safe_event]
+        point_valid = self._s2_contact_region_valid[safe_event]
+        timing = self._s2_contact_region_timing[safe_event]
+        source_id = self._s2_contact_region_source_id[safe_event]
+        event_valid = (
+            torch.full_like(event_id, self._s2_contact_regions_available, dtype=torch.bool)
+            & (event_id >= 0)
+            & (event_id < event_count)
+            & point_valid.any(dim=1)
+        )
+        point_valid = point_valid & event_valid.unsqueeze(1)
+        return points, point_valid, timing, source_id, event_valid
+
+    def s2_next_contact_region_target_w(
+        self, event_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Map the event after ``event_id`` into the current episode world frame.
+
+        Each frozen V3 point is attached to the reference ankle pose at the
+        timing offset saved by the CUDA calibration scan.  Callers latch the
+        returned world-space set when the outgoing physical touch is accepted;
+        later robot/foot motion therefore cannot drag the transition target.
+        """
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        next_event = event_id + 1
+        points_local, point_valid, timing, _source_id, region_valid = (
+            self.s2_contact_region(next_event)
+        )
+        num_points = points_local.shape[1]
+        motion_idx = self.motion_idx.to(torch.long)
+        max_slots = self._s2_event_frames_padded.shape[1]
+        safe_next = next_event.clamp(min=0, max=max_slots - 1)
+        anchor_frame = self._s2_event_frames_padded[motion_idx, safe_next]
+        event_end = self._s2_event_end_frames_padded[motion_idx, safe_next]
+        point_frame = anchor_frame.unsqueeze(1) + timing
+        max_frame = (self.motion.file_lengths[motion_idx] - 1).unsqueeze(1)
+        point_frame = torch.minimum(point_frame.clamp(min=0), max_frame)
+
+        safe_anchor = anchor_frame.clamp(min=0)
+        event_foot = self.motion.dribble_cg_foot[
+            motion_idx, safe_anchor
+        ].to(torch.long)
+        left_index = self.cfg.body_names.index("left_ankle_roll_link")
+        right_index = self.cfg.body_names.index("right_ankle_roll_link")
+        foot_index = torch.where(
+            event_foot == 1,
+            torch.full_like(event_foot, right_index),
+            torch.full_like(event_foot, left_index),
+        )
+        expanded_motion = motion_idx.unsqueeze(1).expand(-1, num_points)
+        expanded_foot = foot_index.unsqueeze(1).expand(-1, num_points)
+        raw_foot_pos = self.motion.body_pos_w[
+            expanded_motion, point_frame, expanded_foot
+        ] + self._env.scene.env_origins.unsqueeze(1)
+        raw_foot_quat = self.motion.body_quat_w[
+            expanded_motion, point_frame, expanded_foot
+        ]
+
+        alignment = self._mimic_target_yaw_delta_quat(
+            self.anchor_quat_w, self.robot_anchor_quat_w
+        )
+        alignment_points = alignment.unsqueeze(1).expand(-1, num_points, -1)
+        mapped_origin = self.robot_anchor_pos_w.clone()
+        mapped_origin[:, 2] = self.anchor_pos_w[:, 2]
+        mapped_foot_pos = mapped_origin.unsqueeze(1) + quat_apply(
+            alignment_points.reshape(-1, 4),
+            (raw_foot_pos - self.anchor_pos_w.unsqueeze(1)).reshape(-1, 3),
+        ).reshape(self.num_envs, num_points, 3)
+        mapped_foot_quat = quat_mul(
+            alignment_points.reshape(-1, 4), raw_foot_quat.reshape(-1, 4)
+        ).reshape(self.num_envs, num_points, 4)
+        points_w = mapped_foot_pos + quat_apply(
+            mapped_foot_quat.reshape(-1, 4), points_local.reshape(-1, 3)
+        ).reshape(self.num_envs, num_points, 3)
+
+        event_valid = (
+            region_valid
+            & (next_event >= 0)
+            & (next_event < max_slots)
+            & (anchor_frame >= 0)
+            & (event_end >= anchor_frame)
+            & ((event_foot == 0) | (event_foot == 1))
+        )
+        point_valid = point_valid & event_valid.unsqueeze(1)
+        invalid = torch.full_like(anchor_frame, -1)
+        return (
+            points_w,
+            point_valid,
+            torch.where(event_valid, anchor_frame, invalid),
+            torch.where(event_valid, event_end, invalid),
+        )
+
     def _build_s2_contact_event_table(self) -> None:
         """Build windowed contact-event labels from the v5.10 CG segments.
 
-        A rising edge in ``dribble_cg_contact`` is the event frame.  Each
-        event owns a symmetric time window and carries exactly one expected
-        foot and one instep surface (0=inside, 1=outside).  A derived
+        Every contiguous non-zero ``dribble_cg_contact`` segment is one
+        logical touch event.  Its rising edge is the anchor frame, while the
+        complete annotated segment, optionally padded by a configured number
+        of frames at both ends, is the valid timing window.  The rising edge
+        remains the anchor/reference frame.  Each event
+        carries exactly one expected foot and one instep surface
+        (0=inside, 1=outside).  A derived
         foot-yaw-local side is retained only for visualization and backwards-
         compatible diagnostics; learning consumes the source surface label
         directly so left/right feet cannot silently invert its meaning.
@@ -186,25 +476,68 @@ class DribbleCGMotionCommand(MotionCommand):
         self._s2_event_surface = torch.full_like(self._s2_event_foot, -1)
         self._s2_event_side = torch.full_like(self._s2_event_foot, -1)
         self._s2_event_frames_by_motion: list[torch.Tensor] = []
+        self._s2_event_window_starts_by_motion: list[torch.Tensor] = []
+        self._s2_event_ends_by_motion: list[torch.Tensor] = []
 
-        fps = float(self.motion.fps.reshape(-1)[0])
-        half_window = max(
-            0, int(round(float(getattr(self.cfg, "dribble_cg_contact_window_seconds", 0.10)) * fps))
-        )
         post_grace = max(
             0, int(getattr(self.cfg, "dribble_cg_missed_contact_grace_steps", 3))
         )
-        required_tail = half_window + post_grace + 1
         for motion_idx in range(num_motions):
             length = int(self.motion.file_lengths[motion_idx].item())
             contact = self.motion.dribble_cg_contact[motion_idx, :length] > 0
             previous = torch.cat(
                 (torch.zeros(1, dtype=torch.bool, device=self.device), contact[:-1])
             )
+            following = torch.cat(
+                (contact[1:], torch.zeros(1, dtype=torch.bool, device=self.device))
+            )
             starts = torch.nonzero(contact & ~previous, as_tuple=False).squeeze(-1)
+            annotated_ends = torch.nonzero(
+                contact & ~following, as_tuple=False
+            ).squeeze(-1)
+            if starts.numel() != annotated_ends.numel():
+                raise RuntimeError(
+                    f"Motion {motion_idx} has malformed S2 contact segments: "
+                    f"{starts.numel()} starts vs {annotated_ends.numel()} ends"
+                )
+            tolerance_frames = max(
+                0,
+                int(
+                    getattr(
+                        self.cfg,
+                        "dribble_cg_contact_window_tolerance_frames",
+                        0,
+                    )
+                ),
+            )
+            window_starts = (starts - tolerance_frames).clamp(min=0)
+            window_ends = (annotated_ends + tolerance_frames).clamp(
+                max=max(0, length - 1)
+            )
+            if starts.numel() > 1:
+                overlap = window_ends[:-1] >= window_starts[1:]
+                if bool(torch.any(overlap)):
+                    bad = int(torch.nonzero(overlap, as_tuple=False)[0].item())
+                    raise RuntimeError(
+                        f"Motion {motion_idx} S2 contact tolerance of "
+                        f"{tolerance_frames} frames overlaps events {bad} and "
+                        f"{bad + 1}; reduce the tolerance or fix the labels."
+                    )
             self._s2_event_frames_by_motion.append(starts)
-            for event_id, event_frame_tensor in enumerate(starts):
+            self._s2_event_window_starts_by_motion.append(window_starts)
+            # Downstream timing/episode logic consumes the padded window end;
+            # anchor lookup continues to consume the unmodified rising edge.
+            self._s2_event_ends_by_motion.append(window_ends)
+            for event_id, (
+                event_frame_tensor,
+                window_start_tensor,
+                window_end_tensor,
+            ) in enumerate(
+                zip(starts, window_starts, window_ends, strict=True)
+            ):
                 event_frame = int(event_frame_tensor.item())
+                window_start = int(window_start_tensor.item())
+                window_end = int(window_end_tensor.item())
                 foot = int(self.motion.dribble_cg_foot[motion_idx, event_frame].item())
                 surface = int(self.motion.dribble_cg_surface[motion_idx, event_frame].item())
                 # In a foot yaw frame +Y is local left.  Inside is +Y for the
@@ -214,14 +547,12 @@ class DribbleCGMotionCommand(MotionCommand):
                     local_left = (foot == 1 and surface == 0) or (foot == 0 and surface == 1)
                     side = 0 if local_left else 1
 
-                start = max(0, event_frame - half_window)
-                end = min(length - 1, event_frame + half_window)
-                frames = torch.arange(start, end + 1, device=self.device)
-                existing_frame = self._s2_event_frame[motion_idx, frames]
-                replace = (existing_frame < 0) | (
-                    torch.abs(frames - event_frame) < torch.abs(frames - existing_frame)
+                # Pad the complete segment, not a single anchor frame.  The
+                # explicit overlap check above keeps close same-side touches
+                # distinct even when timing tolerance is enabled.
+                target_frames = torch.arange(
+                    window_start, window_end + 1, device=self.device
                 )
-                target_frames = frames[replace]
                 self._s2_event_id[motion_idx, target_frames] = event_id
                 self._s2_event_frame[motion_idx, target_frames] = event_frame
                 self._s2_event_foot[motion_idx, target_frames] = foot
@@ -237,8 +568,25 @@ class DribbleCGMotionCommand(MotionCommand):
         self._s2_event_frames_padded = torch.full(
             (num_motions, max(1, max_events)), -1, dtype=torch.long, device=self.device
         )
-        for motion_idx, frames in enumerate(self._s2_event_frames_by_motion):
+        self._s2_event_end_frames_padded = torch.full_like(
+            self._s2_event_frames_padded, -1
+        )
+        self._s2_event_window_start_frames_padded = torch.full_like(
+            self._s2_event_frames_padded, -1
+        )
+        for motion_idx, (frames, window_starts, ends) in enumerate(
+            zip(
+                self._s2_event_frames_by_motion,
+                self._s2_event_window_starts_by_motion,
+                self._s2_event_ends_by_motion,
+                strict=True,
+            )
+        ):
             self._s2_event_frames_padded[motion_idx, : frames.numel()] = frames
+            self._s2_event_window_start_frames_padded[
+                motion_idx, : window_starts.numel()
+            ] = window_starts
+            self._s2_event_end_frames_padded[motion_idx, : ends.numel()] = ends
 
         # Each non-final touch points directly at the next reference ball
         # anchor.  The reward maps this raw reference point into the current
@@ -248,21 +596,85 @@ class DribbleCGMotionCommand(MotionCommand):
         self._s2_next_event_frame_padded = torch.full(
             event_table_shape, -1, dtype=torch.long, device=self.device
         )
+        self._s2_next_event_window_start_frame_padded = torch.full_like(
+            self._s2_next_event_frame_padded, -1
+        )
+        self._s2_next_event_end_frame_padded = torch.full_like(
+            self._s2_next_event_frame_padded, -1
+        )
         self._s2_next_anchor_ref_padded = torch.zeros(
             (*event_table_shape, 3), dtype=torch.float32, device=self.device
+        )
+        self._s2_contact_anchor_ref_padded = torch.zeros(
+            (*event_table_shape, 3), dtype=torch.float32, device=self.device
+        )
+        # Immutable sparse nodes in the reference pelvis-yaw frame.  These
+        # are the clean v0 reward targets; unlike the historical world target
+        # they cannot be moved by the policy's current root pose.
+        self._s2_contact_node_rel_xy_padded = torch.zeros(
+            (*event_table_shape, 2), dtype=torch.float32, device=self.device
+        )
+        self._s2_next_node_rel_xy_padded = torch.zeros(
+            (*event_table_shape, 2), dtype=torch.float32, device=self.device
+        )
+        self._s2_contact_node_rel_z_padded = torch.zeros(
+            event_table_shape, dtype=torch.float32, device=self.device
+        )
+        self._s2_next_node_rel_z_padded = torch.zeros(
+            event_table_shape, dtype=torch.float32, device=self.device
+        )
+        self._s2_contact_node_rel_valid_padded = torch.zeros(
+            event_table_shape, dtype=torch.bool, device=self.device
+        )
+        self._s2_next_node_rel_valid_padded = torch.zeros(
+            event_table_shape, dtype=torch.bool, device=self.device
         )
         self._s2_next_anchor_valid_padded = torch.zeros(
             event_table_shape, dtype=torch.bool, device=self.device
         )
-        for motion_idx, frames in enumerate(self._s2_event_frames_by_motion):
-            if frames.numel() < 2 or not bool(self.motion.motion_has_ball_demo[motion_idx]):
+        self._s2_contact_anchor_valid_padded = torch.zeros(
+            event_table_shape, dtype=torch.bool, device=self.device
+        )
+        for motion_idx, (frames, window_starts, ends) in enumerate(
+            zip(
+                self._s2_event_frames_by_motion,
+                self._s2_event_window_starts_by_motion,
+                self._s2_event_ends_by_motion,
+                strict=True,
+            )
+        ):
+            if not bool(self.motion.motion_has_ball_demo[motion_idx]):
+                continue
+            all_slots = torch.arange(frames.numel(), device=self.device)
+            self._s2_contact_anchor_ref_padded[motion_idx, all_slots] = self.motion.ball_pos_w[
+                motion_idx, frames
+            ]
+            pelvis_pos = self.motion.body_pos_w[motion_idx, frames, self.motion_anchor_body_index]
+            pelvis_quat = self.motion.body_quat_w[motion_idx, frames, self.motion_anchor_body_index]
+            ball_ref = self.motion.ball_pos_w[motion_idx, frames]
+            pelvis_yaw = yaw_quat(pelvis_quat)
+            rel = quat_apply(quat_inv(pelvis_yaw), ball_ref - pelvis_pos)
+            self._s2_contact_node_rel_xy_padded[motion_idx, all_slots] = rel[:, :2]
+            self._s2_contact_node_rel_z_padded[motion_idx, all_slots] = rel[:, 2]
+            self._s2_contact_node_rel_valid_padded[motion_idx, all_slots] = True
+            self._s2_contact_anchor_valid_padded[motion_idx, all_slots] = True
+            if frames.numel() < 2:
                 continue
             next_frames = frames[1:]
+            next_window_starts = window_starts[1:]
+            next_ends = ends[1:]
             slots = torch.arange(frames.numel() - 1, device=self.device)
             self._s2_next_event_frame_padded[motion_idx, slots] = next_frames
+            self._s2_next_event_window_start_frame_padded[
+                motion_idx, slots
+            ] = next_window_starts
+            self._s2_next_event_end_frame_padded[motion_idx, slots] = next_ends
             self._s2_next_anchor_ref_padded[motion_idx, slots] = self.motion.ball_pos_w[
                 motion_idx, next_frames
             ]
+            self._s2_next_node_rel_xy_padded[motion_idx, slots] = rel[1:, :2]
+            self._s2_next_node_rel_z_padded[motion_idx, slots] = rel[1:, 2]
+            self._s2_next_node_rel_valid_padded[motion_idx, slots] = True
             self._s2_next_anchor_valid_padded[motion_idx, slots] = True
 
         # Safe teacher-reset ranges for the second touch.  Never start inside
@@ -332,12 +744,13 @@ class DribbleCGMotionCommand(MotionCommand):
         for count in requested_counts:
             candidates: list[tuple[int, int]] = []
             for motion_idx, frames in enumerate(self._s2_event_frames_by_motion):
-                final_eligible_event = (
-                    int(self.motion.file_lengths[motion_idx].item()) - 1 - required_tail
+                final_eligible_frame = (
+                    int(self.motion.file_lengths[motion_idx].item()) - 1 - post_grace - 1
                 )
                 if (
                     int(frames.numel()) >= count
-                    and int(frames[count - 1].item()) <= final_eligible_event
+                    and int(self._s2_event_ends_by_motion[motion_idx][count - 1].item())
+                    <= final_eligible_frame
                 ):
                     candidates.append((motion_idx, 0))
             if candidates:
@@ -432,6 +845,42 @@ class DribbleCGMotionCommand(MotionCommand):
             torch.where(valid, event_surface, invalid),
         )
 
+    def s2_event_reference(
+        self, event_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return frame/end/foot/surface/valid for explicit event slots.
+
+        Unlike the time-driven active/upcoming helpers, this lookup can stay
+        on a missed event.  It is therefore the correct source for the critic
+        representation of the reward sequence cursor.
+        """
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        max_slots = self._s2_event_frames_padded.shape[1]
+        safe_event = event_id.clamp(min=0, max=max_slots - 1)
+        motion_idx = self.motion_idx.to(torch.long)
+        event_frame = self._s2_event_frames_padded[motion_idx, safe_event]
+        event_end = self._s2_event_end_frames_padded[motion_idx, safe_event]
+        safe_frame = event_frame.clamp(min=0)
+        event_foot = self.motion.dribble_cg_foot[motion_idx, safe_frame].to(torch.long)
+        event_surface = self._s2_event_surface[motion_idx, safe_frame].to(torch.long)
+        selected_first = self.s2_episode_first_event_index
+        selected_count = self.s2_episode_contact_count
+        valid = (
+            (event_id >= selected_first)
+            & (event_id < selected_first + selected_count)
+            & (event_id >= 0)
+            & (event_id < max_slots)
+            & (event_frame >= 0)
+        )
+        invalid = torch.full_like(event_id, -1)
+        return (
+            torch.where(valid, event_frame, invalid),
+            torch.where(valid, event_end, invalid),
+            torch.where(valid, event_foot, invalid),
+            torch.where(valid, event_surface, invalid),
+            valid,
+        )
+
     def s2_contact_reference_foot_pose_w(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Return the selected event's frozen reference foot position/yaw.
 
@@ -464,33 +913,89 @@ class DribbleCGMotionCommand(MotionCommand):
     def s2_next_touch_target_w(
         self, event_id: torch.Tensor, actual_ball_pos_w: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Map the next reference contact anchor at the physical touch time.
+        """Return the next sparse reference node in world coordinates.
 
         Returns ``(next_anchor_w, next_event_frame, remaining_time, valid)``.
-        The alignment is latched by the reward caller; later pelvis rotation
-        therefore cannot rotate the already-issued world-frame target.
+        Clean tasks gather an anchor precomputed at episode reset.  The live
+        policy-root mapping exists only for explicitly enabled historical
+        diagnostics/ablations and never participates in the formal reward.
         """
         event_id = event_id.to(device=self.device, dtype=torch.long)
         max_slots = self._s2_next_event_frame_padded.shape[1]
         safe_event = event_id.clamp(min=0, max=max_slots - 1)
         motion_idx = self.motion_idx.to(torch.long)
+        current_frame = self._s2_event_frames_padded[motion_idx, safe_event]
         next_frame = self._s2_next_event_frame_padded[motion_idx, safe_event]
+        safe_current_frame = current_frame.clamp(min=0)
+        safe_next_frame = next_frame.clamp(min=0)
         raw_anchor = self._s2_next_anchor_ref_padded[motion_idx, safe_event]
+        current_foot = self.motion.dribble_cg_foot[
+            motion_idx, safe_current_frame
+        ].to(torch.long)
+        next_foot = self.motion.dribble_cg_foot[
+            motion_idx, safe_next_frame
+        ].to(torch.long)
         valid = (
             (event_id >= 0)
             & (event_id < max_slots)
             & self._s2_next_anchor_valid_padded[motion_idx, safe_event]
+            & (current_frame >= 0)
+            & (next_frame >= 0)
+            & ((current_foot == 0) | (current_foot == 1))
+            & ((next_foot == 0) | (next_foot == 1))
         )
 
-        raw_anchor_w = raw_anchor + self._env.scene.env_origins
-        alignment = self._mimic_target_yaw_delta_quat(
-            self.anchor_quat_w, self.robot_anchor_quat_w
+        reference_anchor_w = raw_anchor + self._env.scene.env_origins
+        batch = torch.arange(self.num_envs, device=self.device)
+        fixed_next_anchor_w = self.s2_episode_fixed_next_anchors_w[
+            batch, safe_event
+        ]
+        valid &= self.s2_episode_fixed_next_anchor_valid[batch, safe_event]
+        use_fixed = bool(
+            getattr(self.cfg, "dribble_cg_episode_fixed_contact_targets", False)
         )
-        mapped_origin = self.robot_anchor_pos_w.clone()
-        mapped_origin[:, 2] = self.anchor_pos_w[:, 2]
-        next_anchor_w = mapped_origin + quat_apply(
-            alignment, raw_anchor_w - self.anchor_pos_w
+        compare_live = bool(
+            getattr(self.cfg, "dribble_cg_debug_live_target_comparison", False)
         )
+        if not use_fixed or compare_live:
+            alignment = self._mimic_target_yaw_delta_quat(
+                self.anchor_quat_w, self.robot_anchor_quat_w
+            )
+            mapped_origin = self.robot_anchor_pos_w.clone()
+            mapped_origin[:, 2] = self.anchor_pos_w[:, 2]
+            live_next_anchor_w = mapped_origin + quat_apply(
+                alignment, reference_anchor_w - self.anchor_pos_w
+            )
+            live_next_anchor_w[:, 2] = (
+                raw_anchor[:, 2] + self._env.scene.env_origins[:, 2]
+            )
+        else:
+            # Avoid even constructing the endogenous target in formal runs.
+            live_next_anchor_w = fixed_next_anchor_w
+
+        # Numerical closure: map the fixed world target back through the
+        # immutable episode transform.  This must recover the reference I3
+        # anchor (XY) and detects a fixed-but-wrong task-frame transform.
+        recovered_reference_xy = self.s2_episode_reference_root_w[:, :2] + quat_apply(
+            quat_inv(self.s2_episode_yaw_alignment),
+            torch.cat(
+                (
+                    fixed_next_anchor_w[:, :2] - self.s2_episode_actual_root_w[:, :2],
+                    torch.zeros_like(fixed_next_anchor_w[:, :1]),
+                ),
+                dim=-1,
+            ),
+        )[:, :2]
+        fixed_inverse_error = torch.linalg.vector_norm(
+            recovered_reference_xy - reference_anchor_w[:, :2], dim=-1
+        )
+        self.s2_last_live_next_anchor_w.copy_(live_next_anchor_w)
+        self.s2_last_fixed_next_anchor_w.copy_(fixed_next_anchor_w)
+        self.s2_last_fixed_target_valid.copy_(valid)
+        self.s2_last_fixed_inverse_error.copy_(
+            torch.where(valid, fixed_inverse_error, torch.zeros_like(fixed_inverse_error))
+        )
+        next_anchor_w = fixed_next_anchor_w if use_fixed else live_next_anchor_w
         fps = max(float(self.motion.fps.reshape(-1)[0]), 1.0e-6)
         remaining_time = (
             next_frame - self.time_steps.to(torch.long)
@@ -506,6 +1011,155 @@ class DribbleCGMotionCommand(MotionCommand):
             torch.where(valid, remaining_time, torch.zeros_like(remaining_time)),
             valid,
         )
+
+    def s2_next_touch_node_relative_xy(
+        self, event_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return immutable next-node coordinates in the reference pelvis-yaw frame."""
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        max_slots = self._s2_next_node_rel_xy_padded.shape[1]
+        safe_event = event_id.clamp(min=0, max=max_slots - 1)
+        motion_idx = self.motion_idx.to(torch.long)
+        node_xy = self._s2_next_node_rel_xy_padded[motion_idx, safe_event]
+        node_z = self._s2_next_node_rel_z_padded[motion_idx, safe_event]
+        valid = (
+            (event_id >= 0)
+            & (event_id < max_slots)
+            & self._s2_next_node_rel_valid_padded[motion_idx, safe_event]
+        )
+        return node_xy, node_z, valid
+
+    def s2_next_touch_window_end_frame(self, event_id: torch.Tensor) -> torch.Tensor:
+        """Return the labelled end frame of the event after ``event_id``."""
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        max_slots = self._s2_next_event_end_frame_padded.shape[1]
+        safe_event = event_id.clamp(min=0, max=max_slots - 1)
+        motion_idx = self.motion_idx.to(torch.long)
+        next_end = self._s2_next_event_end_frame_padded[motion_idx, safe_event]
+        valid = (
+            (event_id >= 0)
+            & (event_id < max_slots)
+            & (next_end >= 0)
+        )
+        return torch.where(valid, next_end, torch.full_like(next_end, -1))
+
+    def s2_next_touch_window_start_frame(self, event_id: torch.Tensor) -> torch.Tensor:
+        """Return the tolerance-expanded start of the next contact window."""
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        max_slots = self._s2_next_event_window_start_frame_padded.shape[1]
+        safe_event = event_id.clamp(min=0, max=max_slots - 1)
+        motion_idx = self.motion_idx.to(torch.long)
+        next_start = self._s2_next_event_window_start_frame_padded[
+            motion_idx, safe_event
+        ]
+        valid = (
+            (event_id >= 0)
+            & (event_id < max_slots)
+            & (next_start >= 0)
+        )
+        return torch.where(valid, next_start, torch.full_like(next_start, -1))
+
+    def s2_contact_anchor_target_w(
+        self, event_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the current event's sparse ball anchor in world coordinates.
+
+        Clean S2 tasks map the annotated ball centre through the immutable
+        reset-time reference transform.  The target must not move when the
+        policy translates or rotates its pelvis/foot.  Legacy tasks may still
+        request the historical actual-foot-local mapping for old ablations.
+
+        This remains an event-only target; no intermediate ball trajectory or
+        reference ball velocity is constructed.
+        """
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        max_slots = self._s2_contact_anchor_ref_padded.shape[1]
+        safe_event = event_id.clamp(min=0, max=max_slots - 1)
+        motion_idx = self.motion_idx.to(torch.long)
+        event_frame = self._s2_event_frames_padded[motion_idx, safe_event]
+        safe_frame = event_frame.clamp(min=0)
+        event_foot = self.motion.dribble_cg_foot[
+            motion_idx, safe_frame
+        ].to(torch.long)
+        valid = (
+            (event_id >= 0)
+            & (event_id < max_slots)
+            & self._s2_contact_anchor_valid_padded[motion_idx, safe_event]
+            & (event_frame >= 0)
+            & ((event_foot == 0) | (event_foot == 1))
+        )
+
+        left_index = self.cfg.body_names.index("left_ankle_roll_link")
+        right_index = self.cfg.body_names.index("right_ankle_roll_link")
+        foot_index = torch.where(
+            event_foot == 1,
+            torch.full_like(event_foot, right_index),
+            torch.full_like(event_foot, left_index),
+        )
+
+        reference_foot_pos = self.motion.body_pos_w[
+            motion_idx, safe_frame, foot_index
+        ]
+        reference_foot_quat = self.motion.body_quat_w[
+            motion_idx, safe_frame, foot_index
+        ]
+        reference_anchor = self._s2_contact_anchor_ref_padded[
+            motion_idx, safe_event
+        ]
+        if bool(getattr(self.cfg, "dribble_cg_episode_fixed_contact_targets", False)):
+            batch = torch.arange(self.num_envs, device=self.device)
+            anchor_w = self.s2_episode_fixed_contact_anchors_w[batch, safe_event]
+            valid &= self.s2_episode_fixed_contact_anchor_valid[batch, safe_event]
+            return anchor_w, valid
+
+        # Historical ablations represented the annotated contact location as
+        # a local offset attached to the policy-controlled actual foot.
+        anchor_local = quat_apply(
+            quat_inv(reference_foot_quat), reference_anchor - reference_foot_pos
+        )
+
+        batch = torch.arange(self.num_envs, device=self.device)
+        actual_foot_pos = self.robot_body_pos_w[batch, foot_index]
+        actual_foot_quat = self.robot_body_quat_w[batch, foot_index]
+        anchor_w = actual_foot_pos + quat_apply(
+            actual_foot_quat, anchor_local
+        )
+        return anchor_w, valid
+
+    def s2_contact_reference_anchor_target_w(
+        self, event_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Map the raw labelled contact anchor with the live motion alignment.
+
+        This read-only diagnostic target is intentionally distinct from
+        :meth:`s2_contact_anchor_target_w`, which places the invariant local
+        anchor on the *actual* simulated foot for reward shaping.  Comparing
+        both targets exposes root/yaw or tracking mismatches without changing
+        any reward, contact gate, cursor, reset, or curriculum behavior.
+        """
+        event_id = event_id.to(device=self.device, dtype=torch.long)
+        max_slots = self._s2_contact_anchor_ref_padded.shape[1]
+        safe_event = event_id.clamp(min=0, max=max_slots - 1)
+        motion_idx = self.motion_idx.to(torch.long)
+        event_frame = self._s2_event_frames_padded[motion_idx, safe_event]
+        valid = (
+            (event_id >= 0)
+            & (event_id < max_slots)
+            & self._s2_contact_anchor_valid_padded[motion_idx, safe_event]
+            & (event_frame >= 0)
+        )
+        raw_anchor = self._s2_contact_anchor_ref_padded[motion_idx, safe_event]
+        reference_anchor_w = raw_anchor + self._env.scene.env_origins
+        alignment = self._mimic_target_yaw_delta_quat(
+            self.anchor_quat_w, self.robot_anchor_quat_w
+        )
+        mapped_origin = self.robot_anchor_pos_w.clone()
+        mapped_origin[:, 2] = self.anchor_pos_w[:, 2]
+        mapped_anchor = mapped_origin + quat_apply(
+            alignment, reference_anchor_w - self.anchor_pos_w
+        )
+        mapped_anchor[:, 2] = raw_anchor[:, 2] + self._env.scene.env_origins[:, 2]
+        return mapped_anchor, valid
 
     def _sample_s2_contact_curriculum(self, env_ids: torch.Tensor) -> bool:
         """Sample a contact-count episode; return false when the feature is off."""
@@ -525,14 +1179,43 @@ class DribbleCGMotionCommand(MotionCommand):
             )
         probabilities = probabilities / probabilities.sum()
         sampled_counts = counts[torch.multinomial(probabilities, env_ids.numel(), replacement=True)]
-        fps = float(self.motion.fps.reshape(-1)[0])
-        half_window = max(
-            0, int(round(float(getattr(self.cfg, "dribble_cg_contact_window_seconds", 0.10)) * fps))
-        )
         post_grace = max(0, int(getattr(self.cfg, "dribble_cg_missed_contact_grace_steps", 3)))
         release_tail = max(
             0, int(getattr(self.cfg, "dribble_cg_release_window_steps", 8))
         )
+        lookahead_contact_phases = max(
+            0,
+            int(
+                getattr(
+                    self.cfg,
+                    "dribble_cg_curriculum_lookahead_contact_phases",
+                    0,
+                )
+            ),
+        )
+        lookahead_start_level = max(
+            0,
+            int(
+                getattr(
+                    self.cfg,
+                    "dribble_cg_curriculum_lookahead_start_level",
+                    0,
+                )
+            ),
+        )
+        lookahead_levels = tuple(
+            int(value)
+            for value in getattr(
+                self.cfg,
+                "dribble_cg_curriculum_lookahead_levels",
+                (),
+            )
+        )
+        if lookahead_levels:
+            if level not in lookahead_levels:
+                lookahead_contact_phases = 0
+        elif level < lookahead_start_level:
+            lookahead_contact_phases = 0
         self.s2_episode_reset_mode[env_ids] = 0
         self.s2_episode_acquisition_history_steps[env_ids] = 0
 
@@ -583,10 +1266,13 @@ class DribbleCGMotionCommand(MotionCommand):
                 target_frame = self._s2_event_frames_padded[
                     selected_motion, target_event_index
                 ]
+                target_end_frame = self._s2_event_end_frames_padded[
+                    selected_motion, target_event_index
+                ]
                 true_length = self.motion.file_lengths[selected_motion]
                 end_frame = torch.minimum(
                     true_length - 1,
-                    target_frame + half_window + post_grace + release_tail + 1,
+                    target_end_frame + post_grace + release_tail + 1,
                 )
                 self.motion_idx[acquisition_ids] = selected_motion
                 self.motion_length[acquisition_ids] = end_frame + 1
@@ -710,15 +1396,43 @@ class DribbleCGMotionCommand(MotionCommand):
             last_event = self._s2_event_frames_padded[
                 selected_motion, sequence_start + actual_count - 1
             ]
+            last_event_end = self._s2_event_end_frames_padded[
+                selected_motion, sequence_start + actual_count - 1
+            ]
             true_length = self.motion.file_lengths[selected_motion]
             if requested_count == 0:
                 start_frame = torch.zeros_like(first_event)
                 end_frame = true_length - 1
             else:
                 start_frame = torch.zeros_like(first_event)
-                end_frame = torch.minimum(
+                default_end_frame = torch.minimum(
                     true_length - 1,
-                    last_event + half_window + post_grace + release_tail + 1,
+                    last_event_end + post_grace + release_tail + 1,
+                )
+                # Do not add the lookahead event to ``actual_count`` or the
+                # selected event range.  It supplies only enough physical time
+                # to observe the outgoing result of the last required touch.
+                last_selected_slot = sequence_start + actual_count - 1
+                lookahead_slot = last_selected_slot + lookahead_contact_phases
+                event_count = self._s2_event_count_by_motion[selected_motion]
+                has_lookahead = (
+                    (lookahead_contact_phases > 0)
+                    & (lookahead_slot >= 0)
+                    & (lookahead_slot < event_count)
+                )
+                safe_lookahead_slot = torch.minimum(
+                    lookahead_slot.clamp(min=0),
+                    (event_count - 1).clamp(min=0),
+                )
+                lookahead_event_end = self._s2_event_end_frames_padded[
+                    selected_motion, safe_lookahead_slot
+                ]
+                lookahead_end_frame = torch.minimum(
+                    true_length - 1,
+                    lookahead_event_end + post_grace + 1,
+                )
+                end_frame = torch.where(
+                    has_lookahead, lookahead_end_frame, default_end_frame
                 )
 
             self.motion_idx[group_env_ids] = selected_motion
@@ -751,11 +1465,116 @@ class DribbleCGMotionCommand(MotionCommand):
         self.s2_episode_reset_mode[ids] = 0
         self.s2_episode_acquisition_history_steps[ids] = 0
 
+    def _refresh_s2_episode_fixed_targets(self, env_ids: torch.Tensor) -> None:
+        """Precompute every sparse world target from the reset-time transform."""
+        if env_ids.numel() == 0:
+            return
+        motion_idx = self.motion_idx[env_ids].to(torch.long)
+        env_origins = self._env.scene.env_origins[env_ids]
+        reference_root = self.s2_episode_reference_root_w[env_ids]
+        actual_root = self.s2_episode_actual_root_w[env_ids]
+        alignment = self.s2_episode_yaw_alignment[env_ids]
+        slot_count = self._s2_contact_anchor_ref_padded.shape[1]
+
+        def _map_table(raw_table: torch.Tensor) -> torch.Tensor:
+            raw = raw_table[motion_idx]
+            reference_w = raw + env_origins.unsqueeze(1)
+            delta = reference_w - reference_root.unsqueeze(1)
+            delta[:, :, 2] = 0.0
+            alignment_slots = alignment.unsqueeze(1).expand(-1, slot_count, -1)
+            mapped = actual_root.unsqueeze(1) + quat_apply(
+                alignment_slots.reshape(-1, 4), delta.reshape(-1, 3)
+            ).reshape(env_ids.numel(), slot_count, 3)
+            mapped[:, :, 2] = raw[:, :, 2] + env_origins[:, None, 2]
+            return mapped
+
+        self.s2_episode_fixed_contact_anchors_w[env_ids] = _map_table(
+            self._s2_contact_anchor_ref_padded
+        )
+        self.s2_episode_fixed_next_anchors_w[env_ids] = _map_table(
+            self._s2_next_anchor_ref_padded
+        )
+        self.s2_episode_fixed_contact_anchor_valid[env_ids] = (
+            self._s2_contact_anchor_valid_padded[motion_idx]
+        )
+        self.s2_episode_fixed_next_anchor_valid[env_ids] = (
+            self._s2_next_anchor_valid_padded[motion_idx]
+        )
+
     def _resample_command(self, env_ids: Sequence[int]):
         ids = self._to_env_id_tensor(env_ids)
         super()._resample_command(ids)
         if ids.numel() > 0:
+            self._realign_reference_first_contact_ball_after_robot_reset(ids)
+            # Use the exact configured imitation anchor (pelvis for G1), not
+            # an assumed body slot or articulation root.  This makes the fixed
+            # transform algebraically identical to the live mapping at reset.
+            reference_root_pos_w = self.anchor_pos_w[ids]
+            reference_root_quat_w = self.anchor_quat_w[ids]
+            actual_root_pos_w = self.robot_anchor_pos_w[ids]
+            actual_root_quat_w = self.robot_anchor_quat_w[ids]
+            self.s2_episode_reference_root_w[ids] = reference_root_pos_w
+            self.s2_episode_actual_root_w[ids] = actual_root_pos_w
+            self.s2_episode_yaw_alignment[ids] = self._mimic_target_yaw_delta_quat(
+                reference_root_quat_w, actual_root_quat_w
+            )
+            if hasattr(self, "s2_episode_fixed_contact_anchors_w"):
+                self._refresh_s2_episode_fixed_targets(ids)
             self.s2_episode_generation[ids] += 1
+            self.s2_sequence_cursor[ids] = self.s2_episode_first_event_index[ids]
+            self.s2_sequence_contact_succeeded[ids] = False
+            self.s2_locked_next_anchor_w[ids] = 0.0
+            self.s2_locked_next_anchor_valid[ids] = False
+
+    def _realign_reference_first_contact_ball_after_robot_reset(
+        self, env_ids: torch.Tensor
+    ) -> None:
+        """Apply the Flat reset's live rigid transform to the contact ball.
+
+        ``ball_pos_w`` and the motion bodies share the source-reference world
+        frame.  Flat reset may rotate the robot to task-forward (and perturb
+        its root pose), after which motion imitation maps every reference body
+        through that live transform.  The persistent first-contact ball must
+        receive the same transform; otherwise the robot follows a rotated
+        reference while the ball remains at the raw NPZ world coordinate.
+
+        This runs after ``super()._resample_command`` has written the new
+        robot root state.  It changes only the initial physical ball pose and
+        its derived target/destination observations; no reward or contact
+        definition is involved.
+        """
+        if env_ids.numel() == 0 or not self._uses_reference_first_contact_spawn():
+            return
+        env_origins = self._env.scene.env_origins[env_ids]
+        reference_positions, valid, _contact_frames = (
+            self._reference_first_contact_ball_positions(env_ids)
+        )
+        fallback_positions = self._anchor_local_front_ball_positions(env_ids)
+        source_positions = torch.where(
+            valid.unsqueeze(-1), reference_positions, fallback_positions
+        )
+        source_positions_w = source_positions + env_origins
+
+        # Body slot zero is the same reference root used by the parent reset
+        # when it constructs and writes ``root_pos``/``root_ori``.
+        reference_root_pos_w = self.body_pos_w[env_ids, 0]
+        reference_root_quat_w = self.body_quat_w[env_ids, 0]
+        actual_root_pos_w = self.robot.data.root_pos_w[env_ids]
+        actual_root_quat_w = self.robot.data.root_quat_w[env_ids]
+        alignment = self._mimic_target_yaw_delta_quat(
+            reference_root_quat_w, actual_root_quat_w
+        )
+        mapped_positions_w = actual_root_pos_w + quat_apply(
+            alignment, source_positions_w - reference_root_pos_w
+        )
+        # Ground owns the ball height; yaw/planar reset alignment must not
+        # rotate the source height into another axis.
+        mapped_positions_w[:, 2] = source_positions[:, 2] + env_origins[:, 2]
+        self.soccer_ball_pos[env_ids] = mapped_positions_w - env_origins
+        self._update_soccer_ball(env_ids)
+        self._update_target_points(env_ids)
+        if bool(getattr(self.cfg, "soccer_ball_generate_destination", True)):
+            self._update_destination_points(env_ids)
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         regions_only = bool(
@@ -775,11 +1594,21 @@ class DribbleCGMotionCommand(MotionCommand):
                         prim_path="/Visuals/S2Contact/region_bounds"
                     )
                 )
+                self.s2_fixed_target_visualizer = VisualizationMarkers(
+                    self.cfg.s2_fixed_target_marker_cfg
+                )
+                self.s2_live_target_visualizer = VisualizationMarkers(
+                    self.cfg.s2_live_target_marker_cfg
+                )
             self.s2_contact_event_foot_visualizer.set_visibility(True)
             self.s2_contact_region_visualizer.set_visibility(True)
+            self.s2_fixed_target_visualizer.set_visibility(True)
+            self.s2_live_target_visualizer.set_visibility(True)
         elif hasattr(self, "s2_contact_event_foot_visualizer"):
             self.s2_contact_event_foot_visualizer.set_visibility(False)
             self.s2_contact_region_visualizer.set_visibility(False)
+            self.s2_fixed_target_visualizer.set_visibility(False)
+            self.s2_live_target_visualizer.set_visibility(False)
 
     def _debug_vis_callback(self, event):
         if not self.robot.is_initialized:
@@ -812,6 +1641,13 @@ class DribbleCGMotionCommand(MotionCommand):
         self.s2_contact_region_visualizer.visualize(
             corners.reshape(-1, 3), corner_yaw.reshape(-1, 4)
         )
+
+        hidden_fixed = self.s2_last_fixed_next_anchor_w.clone()
+        hidden_live = self.s2_last_live_next_anchor_w.clone()
+        hidden_fixed[~self.s2_last_fixed_target_valid, 2] = -100.0
+        hidden_live[~self.s2_last_fixed_target_valid, 2] = -100.0
+        self.s2_fixed_target_visualizer.visualize(hidden_fixed)
+        self.s2_live_target_visualizer.visualize(hidden_live)
 
     def _validate_fixed_touch_spec(self) -> None:
         """Reject CG clips that conflict with a fixed foot and/or instep region.
@@ -1296,12 +2132,26 @@ class DribbleCGMotionCommandCfg(MotionCommandCfg):
     dribble_cg_front_ball_distance: float = 0.45
     dribble_cg_front_ball_lateral_offset: float = 0.0
     dribble_cg_front_ball_height: float = 0.11
+    # Replay-only actor observation ablation.  ``actual`` is the training
+    # default; ``fixed_front`` keeps the physical ball unchanged but feeds a
+    # neutral far-ball proxy through the existing 3-D actor input.
+    dribble_cg_replay_ball_observation_mode: str = "actual"
+    dribble_cg_replay_ball_observation_distance: float = 0.80
     # Performance-driven S2 levels. Each nested pair is
     # ``(number_of_prefix_contacts, probability)``; zero means full clip.
     # The Curriculum Manager updates ``s2_curriculum_level`` at runtime.
     dribble_cg_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = ()
     dribble_cg_curriculum_start_level: int = 0
+    dribble_cg_curriculum_lookahead_contact_phases: int = 0
+    dribble_cg_curriculum_lookahead_start_level: int = 0
+    # When non-empty, exact levels supersede the start-level rule. This keeps
+    # unselected arrival windows confined to T2/T4 rather than leaking into
+    # physical-contact-only C3/C4/Repeat levels.
+    dribble_cg_curriculum_lookahead_levels: tuple[int, ...] = ()
     dribble_cg_contact_window_seconds: float = 0.10
+    # Symmetric frame tolerance applied to each complete annotated contact
+    # segment.  Zero preserves exact labels for legacy tasks.
+    dribble_cg_contact_window_tolerance_frames: int = 0
     dribble_cg_missed_contact_grace_steps: int = 3
     dribble_cg_ball_spawn_jitter_min: float = 0.0
     dribble_cg_ball_spawn_jitter_max: float = 0.0
@@ -1311,6 +2161,45 @@ class DribbleCGMotionCommandCfg(MotionCommandCfg):
     dribble_cg_ball_spawn_safe_forward_range: tuple[float, float] = (-0.04, 0.12)
     dribble_cg_ball_spawn_safe_side_range: tuple[float, float] = (0.06, 0.14)
     dribble_cg_curriculum_required_contacts: tuple[int, ...] = ()
+    # Empty preserves the legacy behavior in which the last selected
+    # contact's outgoing transition is optimized at every curriculum level.
+    # Clean staged tasks can instead name only their transition-learning
+    # levels (for example T2 but not C2/C3).
+    dribble_cg_terminal_progress_levels: tuple[int, ...] = ()
+    # ``arrival_radius`` and ``positive_final_progress`` are legacy modes.  The
+    # clean sparse curriculum uses ``absolute_window_min``: it evaluates the
+    # minimum ball-centre distance to an episode-fixed reference node over the
+    # next annotated contact window, scaled by the physical ball radius.
+    dribble_cg_terminal_transition_mode: str = "arrival_radius"
+    # Map every sparse contact anchor through the reset-time XY+yaw task frame
+    # instead of the policy-dependent live root frame at outgoing contact.
+    dribble_cg_episode_fixed_contact_targets: bool = False
+    # Historical audit only. Formal training does not construct a live-root
+    # comparison target at all.
+    dribble_cg_debug_live_target_comparison: bool = False
+    # Compatibility switch for the retired window-average/end and delayed
+    # settlement experiments.  Formal sparse tracking leaves it disabled.
+    dribble_cg_enable_legacy_window_outcome: bool = False
+    # Playback markers: immutable reference target is green; the old
+    # policy-dependent live-root target is red.
+    s2_fixed_target_marker_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/S2Contact/fixed_i3_target",
+        markers={
+            "target": sim_utils.SphereCfg(
+                radius=0.06,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
+            )
+        },
+    )
+    s2_live_target_marker_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/S2Contact/live_i3_target",
+        markers={
+            "target": sim_utils.SphereCfg(
+                radius=0.05,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+            )
+        },
+    )
     dribble_cg_hard_replay_min_attempts: int = 30
     dribble_cg_hard_replay_fraction: float = 0.30
     dribble_cg_curriculum_audit_probability: float = 0.25
@@ -1319,6 +2208,8 @@ class DribbleCGMotionCommandCfg(MotionCommandCfg):
     dribble_cg_acquisition_max_history_steps: int = 30
     dribble_cg_release_window_steps: int = 8
     dribble_cg_ball_radius: float = 0.11
+    # Frozen offline robot-foot collision regions. Empty disables V3.
+    dribble_cg_contact_region_path: str = ""
     dribble_cg_s2_debug_regions_only: bool = False
     # ``None`` preserves the historical mixed-foot CG behavior. Unified
     # training sets this to one side and validates every motion at startup.

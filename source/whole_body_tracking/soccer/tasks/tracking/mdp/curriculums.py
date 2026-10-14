@@ -36,6 +36,8 @@ def _clear_s2_curriculum_window(command) -> None:
         "_s2_curriculum_contact_success_sum",
         "_s2_curriculum_side_success_sum",
         "_s2_curriculum_side_attempt_count",
+        "_s2_curriculum_first_release_quality_sum",
+        "_s2_curriculum_first_release_quality_count",
         "_s2_curriculum_sequence_success_sum",
         "_s2_curriculum_sequence_episode_count",
         "_s2_acquisition_episode_count",
@@ -64,7 +66,12 @@ def s2_contact_level_curriculum(
     required_consecutive_passes: int = 2,
     contact_success_threshold: float = 0.75,
     correct_side_threshold: float = 0.70,
+    first_release_quality_threshold: float = 0.60,
     sequence_completion_threshold: float = 0.60,
+    sequence_completion_thresholds: tuple[float, ...] = (),
+    require_terminal_transition: bool = False,
+    terminal_transition_start_level: int = 0,
+    terminal_transition_levels: tuple[int, ...] = (),
     max_fall_rate: float = 0.05,
     fall_termination_terms: tuple[str, ...] = ("anchor_pos_z", "anchor_ori"),
     event_min_attempts: int = 30,
@@ -81,12 +88,15 @@ def s2_contact_level_curriculum(
     evaluated in non-overlapping windows. Two passing windows are required by
     default to avoid promoting on one unusually favorable reset batch.
 
-    The active schedule evaluates fixed frame-0 prefixes of two, four, eight,
-    and then every contact in the full clip. Optional single-touch
-    configurations retain the legacy per-event coverage and hard-replay path,
-    but active S2 never samples an isolated or interior contact. The curriculum
-    remains global and monotonic; old-level episodes finishing after promotion
-    are ignored until resampled.
+    Repeated contact counts may have deliberately different semantics.  In the
+    clean route L0 is ordered O1/O2 contact, while L1 is the same physical
+    prefix plus absolute tracking of the immutable I3 node during its labelled
+    window.  Promotion consumes ``terminal_transition_success``, which is based
+    on window-min distance scaled by the physical ball radius—not relative
+    improvement, a reference speed, or a live policy-root target.  Optional
+    single-touch configurations retain the legacy per-event coverage path.
+    The curriculum remains global and monotonic; old-level episodes finishing
+    after promotion are ignored until resampled.
     """
     command = env.command_manager.get_term(command_name)
     level_tensor = getattr(command, "s2_curriculum_level", None)
@@ -105,6 +115,7 @@ def s2_contact_level_curriculum(
             "episodes": zero,
             "contact_success_rate": zero,
             "correct_side_rate": zero,
+            "first_release_quality_v2_rate": zero,
             "sequence_completion_rate": zero,
             "fall_rate": zero,
             "event_coverage": zero,
@@ -122,10 +133,13 @@ def s2_contact_level_curriculum(
         "_s2_curriculum_contact_success_sum",
         "_s2_curriculum_side_success_sum",
         "_s2_curriculum_side_attempt_count",
+        "_s2_curriculum_first_release_quality_sum",
+        "_s2_curriculum_first_release_quality_count",
         "_s2_curriculum_sequence_success_sum",
         "_s2_curriculum_sequence_episode_count",
         "_s2_curriculum_last_contact_success_rate",
         "_s2_curriculum_last_correct_side_rate",
+        "_s2_curriculum_last_first_release_quality_rate",
         "_s2_curriculum_last_sequence_completion_rate",
         "_s2_curriculum_last_fall_rate",
         "_s2_curriculum_last_event_coverage",
@@ -153,6 +167,12 @@ def s2_contact_level_curriculum(
     level = int(level_tensor.item())
     configured_levels = tuple(getattr(command.cfg, "dribble_cg_curriculum_levels", ()))
     max_level = max(0, len(configured_levels) - 1)
+    exact_terminal_levels = tuple(int(value) for value in terminal_transition_levels)
+    terminal_transition_required_for_level = bool(require_terminal_transition) and (
+        level in exact_terminal_levels
+        if exact_terminal_levels
+        else level >= max(0, int(terminal_transition_start_level))
+    )
     level_entry_history = getattr(
         command, "_s2_curriculum_level_entry_iteration", None
     )
@@ -170,6 +190,16 @@ def s2_contact_level_curriculum(
         training_iteration = torch.tensor(-1, dtype=torch.long, device=env.device)
         setattr(command, "_s2_training_iteration", training_iteration)
     required_contacts = _s2_required_contacts(command, level)
+    configured_sequence_thresholds = tuple(
+        float(value) for value in sequence_completion_thresholds
+    )
+    level_sequence_threshold = (
+        configured_sequence_thresholds[
+            min(level, len(configured_sequence_thresholds) - 1)
+        ]
+        if configured_sequence_thresholds
+        else float(sequence_completion_threshold)
+    )
     single_touch_level = required_contacts == 1
     full_sequence_level = required_contacts == 0
 
@@ -288,6 +318,18 @@ def s2_contact_level_curriculum(
                         command._s2_curriculum_side_attempt_count.add_(
                             successful_touch.to(torch.float32).sum()
                         )
+                        # Retain outgoing release as telemetry only. C1 exists
+                        # solely to prove that the strict qualified PhysX O1
+                        # event can be learned from the Stage1 warm start.
+                        first_release_quality = command.metrics[
+                            "s2_first_release_quality_v2"
+                        ][audit_ids][successful_touch].to(torch.float32)
+                        command._s2_curriculum_first_release_quality_sum.add_(
+                            first_release_quality.sum()
+                        )
+                        command._s2_curriculum_first_release_quality_count.add_(
+                            successful_touch.to(torch.float32).sum()
+                        )
                     _record_event_outcomes(
                         audit_ids,
                         success,
@@ -309,6 +351,30 @@ def s2_contact_level_curriculum(
                         )
                         completion = command.metrics[metric_name][audit_ids]
                         completion = completion[sequence_episode].to(torch.float32)
+                        if (
+                            terminal_transition_required_for_level
+                            and not full_sequence_level
+                        ):
+                            sequence_ids = audit_ids[sequence_episode]
+                            first_event_index = command.s2_episode_first_event_index[
+                                sequence_ids
+                            ].to(torch.long)
+                            selected_count = episode_contact_count[sequence_ids].to(torch.long)
+                            next_event_slot = first_event_index + selected_count
+                            event_count = command._s2_event_count_by_motion[
+                                command.motion_idx[sequence_ids].to(torch.long)
+                            ]
+                            transition_required = next_event_slot < event_count
+                            transition_valid = command.metrics[
+                                "s2_terminal_transition_valid"
+                            ][sequence_ids].to(torch.bool)
+                            transition_success = command.metrics[
+                                "s2_terminal_transition_success"
+                            ][sequence_ids].to(torch.bool)
+                            transition_pass = ~transition_required | (
+                                transition_valid & transition_success
+                            )
+                            completion = completion * transition_pass.to(torch.float32)
                         command._s2_curriculum_sequence_success_sum.add_(completion.sum())
                         command._s2_curriculum_sequence_episode_count.add_(
                             sequence_episode.to(torch.float32).sum()
@@ -319,6 +385,10 @@ def s2_contact_level_curriculum(
     side_rate = (
         command._s2_curriculum_side_success_sum
         / command._s2_curriculum_side_attempt_count.clamp(min=1.0)
+    )
+    first_release_quality_rate = (
+        command._s2_curriculum_first_release_quality_sum
+        / command._s2_curriculum_first_release_quality_count.clamp(min=1.0)
     )
     sequence_rate = (
         command._s2_curriculum_sequence_success_sum
@@ -378,9 +448,6 @@ def s2_contact_level_curriculum(
         if single_touch_level:
             passed = (
                 float(contact_rate.item()) >= float(contact_success_threshold)
-                and float(side_rate.item()) >= float(correct_side_threshold)
-                and float(event_coverage.item()) >= float(event_coverage_threshold)
-                and float(command._s2_curriculum_side_attempt_count.item()) > 0.0
                 and float(fall_rate.item()) <= float(max_fall_rate)
             )
 
@@ -409,7 +476,7 @@ def s2_contact_level_curriculum(
                 plateau_streak.zero_()
         else:
             passed = (
-                float(sequence_rate.item()) >= float(sequence_completion_threshold)
+                float(sequence_rate.item()) >= level_sequence_threshold
                 and float(fall_rate.item()) <= float(max_fall_rate)
             )
             # A deliberately simple, monotonic teacher-reset schedule.  The
@@ -435,6 +502,9 @@ def s2_contact_level_curriculum(
 
         command._s2_curriculum_last_contact_success_rate.copy_(contact_rate)
         command._s2_curriculum_last_correct_side_rate.copy_(side_rate)
+        command._s2_curriculum_last_first_release_quality_rate.copy_(
+            first_release_quality_rate
+        )
         command._s2_curriculum_last_sequence_completion_rate.copy_(sequence_rate)
         command._s2_curriculum_last_fall_rate.copy_(fall_rate)
         command._s2_curriculum_last_event_coverage.copy_(event_coverage)
@@ -476,6 +546,7 @@ def s2_contact_level_curriculum(
         (command._s2_curriculum_last_evaluation_count > 0.0)
         | (command._s2_curriculum_last_contact_success_rate != 0.0)
         | (command._s2_curriculum_last_correct_side_rate != 0.0)
+        | (command._s2_curriculum_last_first_release_quality_rate != 0.0)
         | (command._s2_curriculum_last_sequence_completion_rate != 0.0)
         | (command._s2_curriculum_last_fall_rate != 0.0)
         | (command._s2_curriculum_last_event_coverage != 0.0)
@@ -485,6 +556,11 @@ def s2_contact_level_curriculum(
     )
     logged_side_rate = torch.where(
         has_last_window, command._s2_curriculum_last_correct_side_rate, side_rate
+    )
+    logged_first_release_quality_rate = torch.where(
+        has_last_window,
+        command._s2_curriculum_last_first_release_quality_rate,
+        first_release_quality_rate,
     )
     logged_sequence_rate = torch.where(
         has_last_window, command._s2_curriculum_last_sequence_completion_rate, sequence_rate
@@ -508,6 +584,7 @@ def s2_contact_level_curriculum(
         ),
         "contact_success_rate": logged_contact_rate,
         "correct_side_rate": logged_side_rate,
+        "first_release_quality_v2_rate": logged_first_release_quality_rate,
         "sequence_completion_rate": logged_sequence_rate,
         "fall_rate": logged_fall_rate,
         "event_coverage": logged_event_coverage,

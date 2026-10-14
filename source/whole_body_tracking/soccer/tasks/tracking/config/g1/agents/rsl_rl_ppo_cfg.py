@@ -69,9 +69,18 @@ class G1DribblingRecurrentPPORunnerCfg(G1FlatRecurrentPPORunnerCfg):
 
 
 @configclass
+class G1CleanV0Stage1RecurrentPPORunnerCfg(G1FlatRecurrentPPORunnerCfg):
+    """Fresh clean-v0 Stage-1 prior with the same 500-iteration checkpoint cadence."""
+
+    experiment_name = "g1_dribbling"
+    save_interval = 500
+
+
+@configclass
 class G1DribblingS2RecurrentPPORunnerCfg(G1DribblingRecurrentPPORunnerCfg):
     """S2 PPO settings for precise, bounded contact exploration."""
 
+    save_interval = 500
     policy_std_min: float = 0.10
     policy_std_max: float = 1.50
     s2_warm_start_reset_optimizer: bool = True
@@ -81,6 +90,12 @@ class G1DribblingS2RecurrentPPORunnerCfg(G1DribblingRecurrentPPORunnerCfg):
         super().__post_init__()
         self.policy.init_noise_std = 0.40
         self.algorithm.entropy_coef = 0.001
+        # A cross-stage warm start creates a fresh Adam optimizer. Starting it
+        # at the generic 1e-3 rate destroyed the loaded S1 actor in the first
+        # PPO update (surrogate 0.316, then ~100% falls), before any strict O1
+        # contact existed. 1e-5 is the rate the adaptive schedule selected
+        # immediately after that destructive update; start there instead.
+        self.algorithm.learning_rate = 1.0e-5
 
 
 LOW_FREQ_SCALE = 0.5

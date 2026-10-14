@@ -308,6 +308,8 @@ def synthesize_ball_trajectory(
     foot_surface_offset: float | None,
     foot_collision_radius: float,
     foot_contact_x: float,
+    outside_foot_contact_x: float,
+    outside_lateral_inset: float,
     foot_half_width: float,
     foot_contact_z: float,
     terminal_forward_limit: float,
@@ -326,6 +328,10 @@ def synthesize_ball_trajectory(
     if foot_surface_offset is not None and foot_surface_offset < 0.0:
         raise ValueError(
             f"foot_surface_offset must be non-negative when provided, got {foot_surface_offset}."
+        )
+    if outside_lateral_inset < 0.0:
+        raise ValueError(
+            f"outside_lateral_inset must be non-negative, got {outside_lateral_inset}."
         )
 
     T = int(body_pos_w.shape[0])
@@ -422,8 +428,12 @@ def synthesize_ball_trajectory(
             else:
                 side_normal_xy /= norm_xy
 
+            # Outside-of-foot dribbling uses the forefoot/toe region, while
+            # inside contacts retain the mid-forefoot anchor.  A shared X
+            # coordinate incorrectly reduced the distinction to lateral sign.
+            surface_contact_x = outside_foot_contact_x if sid == 1 else foot_contact_x
             contact_local = np.array(
-                [foot_contact_x, side_local_sign * foot_half_width, foot_contact_z],
+                [surface_contact_x, side_local_sign * foot_half_width, foot_contact_z],
                 dtype=np.float64,
             )
             contact_w = foot_p.astype(np.float64) + _quat_rotate_wxyz(foot_q, contact_local)
@@ -438,6 +448,11 @@ def synthesize_ball_trajectory(
                 if foot_surface_offset is None
                 else foot_surface_offset
             )
+            if sid == 1:
+                # The manually inferred outside anchor is approximate.  A
+                # positive inset moves the ball centre toward the shoe while
+                # preserving the labelled side and forefoot X template.
+                centre_clearance = max(0.0, centre_clearance - outside_lateral_inset)
             ball_xy = contact_w[:2] + side_normal_xy * centre_clearance
         else:
             # Preserve the historical inter-foot medial shift for datasets that
@@ -747,6 +762,24 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--outside_foot_contact_x",
+        type=float,
+        default=0.16,
+        help=(
+            "Forefoot/toe contact X used only for outside-foot labels "
+            "(m in ankle-roll local coordinates; default: 0.16)."
+        ),
+    )
+    parser.add_argument(
+        "--outside_lateral_inset",
+        type=float,
+        default=0.0,
+        help=(
+            "Move outside-foot ball centres toward the shoe by this distance while "
+            "retaining the outside-side sign (m; default: 0.0)."
+        ),
+    )
+    parser.add_argument(
         "--foot_half_width",
         type=float,
         default=0.026,
@@ -854,6 +887,8 @@ def main() -> None:
             foot_surface_offset=args.foot_surface_offset,
             foot_collision_radius=args.foot_collision_radius,
             foot_contact_x=args.foot_contact_x,
+            outside_foot_contact_x=args.outside_foot_contact_x,
+            outside_lateral_inset=args.outside_lateral_inset,
             foot_half_width=args.foot_half_width,
             foot_contact_z=args.foot_contact_z,
             terminal_forward_limit=args.terminal_forward_limit,

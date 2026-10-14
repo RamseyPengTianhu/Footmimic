@@ -21,13 +21,21 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from soccer.tasks.tracking import mdp
 from soccer.tasks.tracking.mdp import observations_anchor as obs_anchor
 from soccer.tasks.tracking.mdp.commands_dribble_cg import DribbleCGMotionCommand
 from .soccer_flat_env_cfg import (
+    G1FlatMotionPretrainEnvCfg,
     G1FlatMotionStrictPretrainEnvCfg,
     G1FlatProximityEnvCfg,
+    SOCCER_BALL_RADIUS,
+    _STAGE1_LEG_VEL_BODY_NAMES,
+    _STAGE1_LOCOMOTION_BODY_NAMES,
+    _STAGE1_UPPER_BODY_NAMES,
+    _apply_soccer_obs,
+    _apply_stage1_ghost_ball,
 )
 
 
@@ -751,6 +759,27 @@ def _apply_unified_local_twist_observations(cfg) -> None:
     )
 
 
+def _apply_flat_reference_twist_observation(cfg) -> None:
+    """Append only the reference-derived local twist to the Flat S1 layout.
+
+    This deliberately preserves ``Tracking-Flat-G1-Motion-RNN-v0``'s
+    observations, rewards, reset policy, ``MotionCommand`` and randomized
+    start-ahead ball.  The only interface addition is a 3-D command
+    ``[vx_local, vy_local, wz]`` computed from the motion reference.
+    """
+    cfg.commands.motion.locomotion_command_mode = "reference"
+    cfg.commands.motion.locomotion_command_frame = "pelvis_local"
+    cfg.commands.motion.locomotion_task_state_enabled = False
+    cfg.observations.policy.motion_locomotion_twist_cmd = ObsTerm(
+        func=mdp.motion_locomotion_twist_command_local,
+        params={"command_name": "motion"},
+    )
+    cfg.observations.critic.motion_locomotion_twist_cmd = ObsTerm(
+        func=mdp.motion_locomotion_twist_command_local,
+        params={"command_name": "motion"},
+    )
+
+
 def _apply_unified_local_163_contract(cfg) -> None:
     """Shared 163-D/29-D deployment-oriented interface for local S1/S2/S3."""
     _apply_cg_pretrain_obs(cfg)
@@ -866,12 +895,23 @@ _S2_REWARD_NAMES = frozenset(
         "upper_body_manifold_nullspace",
         "s2_windowed_foot_tracking",
         "s2_approach_progress",
+        "s2_coarse_contact_approach",
+        "s2_anchor_approach_progress_v2",
+        "s2_contact_region_progress_v3",
+        "s2_contact_region_arrival",
         "s2_contact_proximity",
-        "s2_immediate_contact_bonus",
+        "s2_contact_anchor_arrival",
+        "s2_physical_contact_candidate_bonus",
+        "s2_effective_touch_bonus",
         "s2_next_touch_release",
+        "s2_next_touch_release_v2",
+        "s2_next_anchor_progress",
+        "s2_sequence_progress",
         "s2_surface_style",
+        "s2_excess_contact_force",
         "s2_nonfoot_ball_contact",
         "s2_wrong_foot_contact",
+        "s2_wrong_side_contact",
         "s2_premature_contact",
     }
 )
@@ -930,21 +970,119 @@ class G1FlatMotionCGPretrainUnifiedS1LocalStrictEnvCfg(G1FlatMotionStrictPretrai
 
 
 @configclass
+class G1FlatMotionPretrainReferenceTwistEnvCfg(G1FlatMotionPretrainEnvCfg):
+    """Clean Flat Stage-1 plus a reference-derived 3-D velocity command.
+
+    Unlike the unified S1 task, this keeps the historical Flat semantics:
+    target/destination observations, ``MotionCommand``, start-ahead ball with
+    lateral spawn jitter, task-frame mimic rewards, and Flat reset behavior.
+    The sole addition is the reference local twist observation, yielding a
+    163-D actor input and 295-D critic input without changing the Flat reward.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_flat_reference_twist_observation(self)
+
+
+@configclass
+class G1CleanV0Stage1EnvCfg(G1FlatMotionPretrainReferenceTwistEnvCfg):
+    """Deployable clean Stage-1 prior for the v0 dribbling pipeline.
+
+    The actor sees the same current-ball channel that Stage 2 will use, but
+    the ball is a bounded, independent ghost object and no reward/termination
+    consumes it.  Destination is deliberately absent, so this task's actor
+    contract is 160-D (Flat 154 + ball xyz 3 + reference twist 3).
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # The Actor receives the reference command as pelvis-local
+        # ``[vx, vy, wz]``.  Supervise that exact deployable quantity instead
+        # of comparing linear velocity in the task/world frame, and give the
+        # third command component an explicit (conservative) yaw-rate term.
+        # Absolute root position/orientation remain disabled: Stage 1 learns
+        # the reference motion, not one fixed placement in the world.
+        self.rewards.motion_global_anchor_pos = None
+        self.rewards.motion_global_anchor_ori = None
+        # Their selected, pelvis-relative replacements below already cover
+        # pose and leg dynamics; do not keep dead global-body telemetry terms
+        # in the clean RewardManager.
+        self.rewards.motion_body_lin_vel = None
+        self.rewards.motion_body_ang_vel = None
+        self.rewards.motion_anchor_lin_vel = RewTerm(
+            func=mdp.motion_anchor_local_lin_vel_tracking_exp,
+            weight=2.2,
+            params={"command_name": "motion", "std": 1.0},
+        )
+        self.rewards.motion_anchor_ang_vel = RewTerm(
+            func=mdp.motion_anchor_local_ang_vel_tracking_exp,
+            weight=0.4,
+            params={"command_name": "motion", "std": 1.0},
+        )
+
+        # Keep the historical Flat reset noise and interval pushes. They are
+        # part of the motion-prior robustness distribution, not a ball-task
+        # signal, and retaining them keeps Stage 1 matched to the verified
+        # Tracking-Flat-G1-Motion-RNN-v0 recipe.
+        self.commands.motion.motion_clip_end_resample = True
+        self.commands.motion.motion_clip_end_terminate = True
+        self.commands.motion.motion_cyclic_blend_frames = 0
+        self.terminations.motion_clip_end = DoneTerm(
+            func=mdp.motion_clip_finished,
+            params={"command_name": "motion"},
+            time_out=True,
+        )
+
+        self.commands.motion.anchor_body_name = "pelvis"
+        self.commands.motion.soccer_ball_spawn_mode = "workspace"
+        self.commands.motion.soccer_ball_workspace_x_range = (0.25, 0.80)
+        self.commands.motion.soccer_ball_workspace_y_range = (-0.35, 0.35)
+        self.commands.motion.soccer_ball_follow_actual_pelvis_yaw = True
+        self.commands.motion.soccer_ball_generate_destination = False
+        self.commands.motion.target_destination_marker_cfg = None
+
+        # Use the real scene ball in the full pelvis frame.  This preserves
+        # the historical Flat body-frame semantics and maps directly from a
+        # deployable body-mounted ball measurement.
+        self.observations.policy.target_point_pos = ObsTerm(
+            func=mdp.ball_pos_pelvis_full,
+            params={"command_name": "motion"},
+        )
+        self.observations.critic.target_point_pos = ObsTerm(
+            func=mdp.ball_pos_pelvis_full,
+            params={"command_name": "motion"},
+        )
+        self.observations.policy.target_destination_pos_local = None
+        self.observations.critic.target_destination_pos_local = None
+
+        # Keep ball-ground visualization/state available for playback, but
+        # prevent robot-ball collision from changing the motion prior.
+        _apply_stage1_ghost_ball(self)
+
+
+@configclass
 class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
-    """S2: learn frame-0 prefixes from two contacts through the full clip."""
+    """S2: learn clean frame-0 contact transitions through the full clip."""
 
     dribble_contact_mode: str = "both"
     dribble_contact_surface: str = "instep"
+    # First validate a clean frame-0 O1/O2 physical-contact unit. Keep the
+    # curriculum frozen here until the separate O2->I3 transition level is
+    # implemented and validated; do not jump directly from C2 to C3.
     s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
         ((2, 1.0),),
-        ((4, 1.0),),
-        ((8, 1.0),),
-        ((0, 1.0),),
-        ((0, 1.0),),
     )
 
     def __post_init__(self):
         super().__post_init__()
+        # Keep the first S2 training line deterministic at the episode level.
+        # The base tracking task applies random interval pushes; those change
+        # the ball/body state independently of the sparse contact labels and
+        # make transition failures ambiguous.  Startup domain randomization is
+        # retained because it is shared with the S1 checkpoint.
+        self.events.push_robot = None
         _apply_local_twist_command_mode(self, "reference")
         _apply_reference_local_reset(self)
         # S2 remains an exact demo/contact episode.  Ball, robot, and LSTM
@@ -958,13 +1096,81 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
             params={"command_name": "motion"},
             time_out=True,
         )
-        _apply_local_twist_velocity_rewards(self, lin_weight=5.0, lin_std=0.60, yaw_weight=1.0, yaw_std=1.50)
+        # Preserve the S1 local-reference motion prior during S2 fine-tuning.
+        # Only foot *position* is released by the event-window term below;
+        # changing the remaining imitation objective at the S1 -> S2 boundary
+        # makes a ball reward compete with a simultaneously moving prior.
+        ankle_names = ["right_ankle_roll_link", "left_ankle_roll_link"]
+        non_foot_body_names = [
+            body_name
+            for body_name in self.commands.motion.body_names
+            if body_name not in ankle_names
+        ]
+        self.rewards.motion_body_pos = RewTerm(
+            func=mdp.motion_relative_body_position_error_exp,
+            weight=1.0,
+            params={
+                "command_name": "motion",
+                "std": 0.30,
+                "body_names": non_foot_body_names,
+            },
+        )
+        # Keep the complete S1 orientation target, including both ankles.  The
+        # policy may move the labelled foot toward the physical ball, but it
+        # cannot rotate the ankle to manufacture an easier anchor/side test.
+        self.rewards.motion_body_ori = RewTerm(
+            func=mdp.motion_relative_body_orientation_error_exp,
+            weight=1.0,
+            params={"command_name": "motion", "std": 0.40},
+        )
+        self.rewards.motion_body_lin_vel = RewTerm(
+            func=mdp.motion_global_body_linear_velocity_error_exp,
+            weight=1.0,
+            params={
+                "command_name": "motion",
+                "std": 1.0,
+                "body_names": non_foot_body_names,
+            },
+        )
+        self.rewards.motion_body_ang_vel = RewTerm(
+            func=mdp.motion_global_body_angular_velocity_error_exp,
+            weight=1.0,
+            params={
+                "command_name": "motion",
+                "std": 3.14,
+                "body_names": non_foot_body_names,
+            },
+        )
+        _apply_local_twist_velocity_rewards(
+            self, lin_weight=5.0, lin_std=0.45, yaw_weight=2.0, yaw_std=0.80
+        )
         _apply_unified_local_163_contract(self)
 
-        # S2 keeps normal two-foot imitation outside contact windows. During
-        # contact it preserves the support-foot target and nearly releases
-        # only the labelled contact foot so physics can determine its final
-        # ball-relative placement.
+        # Asymmetric training only: the critic sees the sparse labelled ball
+        # targets and contact phase, while the actor keeps the unchanged
+        # deployment-oriented 163-D position-only interface.  Appending this
+        # term grows the critic from 295 to 314 inputs; checkpoint loading pads
+        # only the new critic columns and leaves the S1 actor untouched.
+        self.observations.critic.s2_ball_reference_context = ObsTerm(
+            func=obs_anchor.s2_sparse_ball_reference_context,
+            params={"command_name": "motion"},
+        )
+
+        # A valid S2 touch must come from an actual ball-foot collision.  The
+        # filtered matrix excludes ground contact before any event logic sees
+        # the force; filter order matches ``ankle_names`` below.
+        self.scene.soccer_ball_contact.filter_prim_paths_expr = [
+            "{ENV_REGEX_NS}/Robot/right_ankle_roll_link",
+            "{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
+        ]
+        self.commands.motion.dribble_cg_contact_region_path = (
+            "logs/s2_calibration/all16_contact_regions_v3_closedloop.npz"
+        )
+
+        # Isolated contact-foot ablation: retain the complete S1 motion prior
+        # except for the labelled foot's position target, which ramps down
+        # shortly before each reference event.  Orientation and all non-foot
+        # body targets remain unchanged.
         self.rewards.s2_windowed_foot_tracking = RewTerm(
             func=mdp.dribbling_s2_windowed_foot_tracking_exp,
             weight=1.0,
@@ -972,15 +1178,14 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
                 "command_name": "motion",
                 "std": 0.30,
                 "foot_body_names": ["left_ankle_roll_link", "right_ankle_roll_link"],
-                "contact_foot_scale": 0.10,
-                "contact_foot_release_seconds": 0.30,
+                "contact_foot_scale": 0.3,
+                "contact_foot_release_seconds": 0.20,
             },
         )
 
         # Contact-dependent terms share one event/release state.  The target
         # body list starts with both legal ankle links; later entries are
         # explicit non-foot penalties.
-        ankle_names = ["right_ankle_roll_link", "left_ankle_roll_link"]
         num_ankle_links = len(ankle_names)
         s2_contact_body_cfg = SceneEntityCfg(
             "robot",
@@ -1000,20 +1205,132 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
             "num_ankle_links": num_ankle_links,
             "require_expected_foot": True,
             "target_side_enabled": True,
-            "side_deadzone": 0.04,
+            # The labels identify inside/outside, not a measured clearance.
+            # Use the sign in the actual ankle-local frame; do not invent a
+            # centimetre margin as contact truth.
+            "side_deadzone": 0.0,
             "proximity_contact_distance_max": 0.25,
             "target_region_std": 0.12,
-            "proximity_approach_seconds": 0.30,
-            "proximity_approach_min_weight": 0.20,
-            "missed_contact_grace_steps": 3,
+            # Sparse supervision is active only in the labelled contiguous
+            # contact segment; no synthetic pre-contact time horizon is used.
+            "proximity_approach_seconds": 0.0,
+            "proximity_approach_min_weight": 0.0,
+            "missed_contact_grace_steps": 0,
+            # Anchor position is approximate supervision.  Scale its smooth
+            # reward by the configured physical ball radius and never use an
+            # uncalibrated distance to reject a real PhysX contact.
+            "contact_anchor_std": None,
+            "contact_anchor_max_distance": None,
+            # Calibrated from all 264 semantically correct exact-contact hits
+            # in o1_o2_i3_static_contact_scan_v2.npz.  The rounded scales are
+            # just outside the observed maxima (4.113, 4.029, 2.142 cm).
+            "contact_anchor_local_sigmas": (0.042, 0.042, 0.022),
+            # exp(-1/2 * 3): the boundary of the 1-sigma ellipsoid.  Every
+            # positive static-scan hit passes (observed minimum quality .256).
+            # C2 contact truth is physical collision + window + foot + side.
+            # Keep calibrated quality as shaping/telemetry until its negative
+            # class has also been calibrated; it must not reject a real touch.
+            "contact_anchor_quality_min": None,
+            # The event table already contains the configured +/-2-frame
+            # annotation tolerance.  A physical onset must occur inside that
+            # expanded window; an earlier sustained contact cannot be claimed
+            # after the window opens.  No second onset grace is permitted.
+            "contact_onset_early_grace_steps": 0,
+            # The ankle origin is not a calibrated shoe-surface origin.  Exact
+            # right-foot/outside contacts in the verified Flat Stage-1 replay
+            # span slightly negative local x, so an x-sign/range gate rejects
+            # real contacts.  Keep full local xyz as telemetry, but define a
+            # candidate only from window + PhysX foot + expected foot + side.
+            "pair_terminal_contact_region_max_distance": None,
+            "coarse_contact_longitudinal_min": None,
+            "coarse_contact_longitudinal_max": None,
         }
+        # Termination has an explicit signature and does not consume the
+        # reward-only anchor-shaping parameters.
+        termination_event_params = {
+            key: value
+            for key, value in event_params.items()
+            if key
+            not in {
+                "contact_anchor_std",
+                "contact_anchor_max_distance",
+                "contact_anchor_local_sigmas",
+                "contact_anchor_quality_min",
+                "contact_onset_early_grace_steps",
+                "pair_terminal_contact_region_max_distance",
+                "coarse_contact_longitudinal_min",
+                "coarse_contact_longitudinal_max",
+            }
+        }
+        # Isaac Lab validates term call signatures.  The small wrapper rewards
+        # below therefore receive this explicit dictionary instead of a
+        # variadic ``**kwargs`` signature.
+        packed_event_params = {"event_params": dict(event_params)}
         self.rewards.s2_approach_progress = RewTerm(
             func=mdp.dribbling_s2_approach_progress,
-            weight=2.0,
+            # Keep the signed foot-ball approach potential as telemetry only.
+            # The Stage1 motion reference owns the pre-contact foot timing;
+            # optimizing this term can make the swing foot chase the ball early.
+            weight=0.0,
             params={
-                **dict(event_params),
-                "approach_distance_std": 0.40,
-                "approach_progress_max": 4.0,
+                "event_params": {
+                    **dict(event_params),
+                    "approach_distance_std": 0.40,
+                    "approach_progress_max": 4.0,
+                },
+            },
+        )
+        self.rewards.s2_coarse_contact_approach = RewTerm(
+            func=mdp.dribbling_s2_coarse_contact_approach,
+            # Disabled: minimizing ankle-origin-to-ball-centre distance
+            # conflicts with the calibrated forefoot reference geometry.
+            weight=0.0,
+            params={
+                "event_params": {
+                    **dict(event_params),
+                    "coarse_approach_duration": 0.20,
+                    "coarse_approach_progress_max": 4.0,
+                },
+            },
+        )
+        self.rewards.s2_anchor_approach_progress_v2 = RewTerm(
+            func=mdp.dribbling_s2_anchor_approach_progress_v2,
+            # Point-anchor V2 remains available only for telemetry/ablation.
+            weight=0.0,
+            params={
+                "event_params": {
+                    **dict(event_params),
+                    # Three times the calibrated final-contact ellipsoid keeps
+                    # acquisition informative at roughly ten-centimetre error
+                    # without redefining physical-contact success.
+                    "anchor_approach_duration": 0.20,
+                    "anchor_approach_local_scales": (0.126, 0.126, 0.066),
+                    "anchor_approach_progress_max": 4.0,
+                },
+            },
+        )
+        self.rewards.s2_contact_region_progress_v3 = RewTerm(
+            func=mdp.dribbling_s2_contact_region_progress_v3,
+            weight=0.0,
+            params={
+                "event_params": {
+                    **dict(event_params),
+                    "contact_region_approach_duration": 0.20,
+                    "contact_region_progress_max": 4.0,
+                    "contact_region_arrival_std": 0.02,
+                },
+            },
+        )
+        self.rewards.s2_contact_region_arrival = RewTerm(
+            func=mdp.dribbling_s2_contact_region_arrival,
+            weight=0.0,
+            params={
+                "event_params": {
+                    **dict(event_params),
+                    "contact_region_approach_duration": 0.20,
+                    "contact_region_progress_max": 4.0,
+                    "contact_region_arrival_std": 0.02,
+                },
             },
         )
         self.rewards.s2_contact_proximity = RewTerm(
@@ -1021,59 +1338,156 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
             # Dense side-aware guidance bridges the released reference foot to
             # the sparse physical event. It is disabled immediately after a
             # side-valid contact succeeds.
-            weight=1.0,
-            params=dict(event_params),
+            # First reward-cleanup ablation: keep the term/telemetry active,
+            # but rely on the precise foot-local anchor-arrival objective.
+            weight=0.0,
+            params=dict(termination_event_params),
         )
-        # Correct time and foot define contact success.  The source
-        # inside/outside label is deliberately only a style preference.
-        self.rewards.s2_immediate_contact_bonus = RewTerm(
-            func=mdp.dribbling_s2_immediate_contact_bonus,
-            weight=5.0,
-            params=dict(event_params),
+        self.rewards.s2_contact_anchor_arrival = RewTerm(
+            func=mdp.dribbling_s2_contact_anchor_arrival,
+            # Low-weight local-geometry bootstrap for every event, including
+            # O1.  The reference foot-local anchor is mapped through the
+            # actual foot, so this guides foot placement rather than paying
+            # merely for the ball's reset world position.
+            weight=0.0,
+            params=dict(packed_event_params),
+        )
+        self.rewards.s2_physical_contact_candidate_bonus = RewTerm(
+            func=mdp.dribbling_s2_physical_contact_candidate_bonus,
+            # Observable contact fact: the strict current-window/foot/side
+            # collision advances contact ordering.  Its outgoing transition
+            # is verified only by the next ordered physical contact.
+            # Match the successful legacy O1 bootstrap magnitude using only
+            # this reliable physical-contact fact.  Transition quality remains
+            # a separate delayed +15 reward at the next ordered contact.
+            weight=20.0,
+            params=dict(packed_event_params),
+        )
+        # Delayed result reward: the following strict ordered physical contact
+        # verifies the preceding transition (O2 verifies O1->O2, I3 verifies
+        # O2->I3, ...).  It has no centimetre, velocity, point-anchor, or region
+        # gate and does not participate in cursor advancement.
+        self.rewards.s2_effective_touch_bonus = RewTerm(
+            func=mdp.dribbling_s2_effective_touch_bonus,
+            weight=15.0,
+            params=dict(packed_event_params),
         )
         self.rewards.s2_next_touch_release = RewTerm(
             func=mdp.dribbling_s2_next_touch_release,
-            # 12 gives a first-release maximum return of 1.92 over eight
-            # 20-ms steps.  It is deliberately below the earlier aggressive
-            # proposal of 20 while remaining large enough to shape touch 1.
-            weight=12.0,
+            # Preserve the original speed-based signal for telemetry and
+            # comparison, but do not optimize it in the V2 experiment.
+            weight=0.0,
             params={
-                **dict(event_params),
-                "release_window_steps": 8,
-                "release_speed_lower_ratio": 0.65,
-                "release_speed_upper_ratio": 1.35,
-                "release_lateral_speed_std": 0.35,
-                "release_overspeed_decay_ratio": 0.35,
-                "release_velocity_outlier_scale": 0.75,
-                "release_separation_min": 0.14,
-                "release_separation_full": 0.22,
-                "release_quality_threshold": 0.50,
-                "release_min_target_distance": 0.05,
+                "event_params": {
+                    **dict(event_params),
+                    "release_window_steps": 8,
+                    "release_speed_lower_ratio": 0.65,
+                    "release_speed_upper_ratio": 1.35,
+                    "release_lateral_speed_std": 0.35,
+                    "release_overspeed_decay_ratio": 0.35,
+                    "release_velocity_outlier_scale": 0.75,
+                    "release_separation_min": 0.14,
+                    "release_separation_full": 0.22,
+                    "release_quality_threshold": 0.50,
+                    "release_v2_quality_threshold": 0.05,
+                    "release_min_target_distance": 0.0,
+                    "release_arrival_progress_max": 4.0,
+                },
             },
+        )
+        self.rewards.s2_next_touch_release_v2 = RewTerm(
+            func=mdp.dribbling_s2_next_touch_release_v2,
+            # The short release score overlaps the full inter-contact
+            # potential and passed on motions that never completed O2.
+            # Retain telemetry only; optimize one transition signal.
+            weight=0.0,
+            params={
+                "event_params": {
+                    **dict(event_params),
+                    "release_window_steps": 8,
+                    "release_speed_lower_ratio": 0.65,
+                    "release_speed_upper_ratio": 1.35,
+                    "release_lateral_speed_std": 0.35,
+                    "release_overspeed_decay_ratio": 0.35,
+                    "release_velocity_outlier_scale": 0.75,
+                    "release_separation_min": 0.14,
+                    "release_separation_full": 0.22,
+                    "release_quality_threshold": 0.50,
+                    "release_v2_quality_threshold": 0.05,
+                    "release_min_target_distance": 0.0,
+                    "release_arrival_progress_max": 4.0,
+                },
+            },
+        )
+        self.rewards.s2_next_anchor_progress = RewTerm(
+            func=mdp.dribbling_s2_next_anchor_progress,
+            # Signed position-potential toward the locked next anchor.  This
+            # is the only outgoing-ball shaping signal: no reference speed,
+            # reconstructed trajectory, or V3 scan region is optimized.
+            weight=1.0,
+            params={
+                "event_params": {
+                    **dict(event_params),
+                    "release_window_steps": 8,
+                    "release_min_target_distance": 0.0,
+                    "release_arrival_progress_max": 4.0,
+                },
+            },
+        )
+        self.rewards.s2_sequence_progress = RewTerm(
+            func=mdp.dribbling_s2_sequence_progress_bonus,
+            # Physical contact already receives an event bonus and curriculum
+            # completion.  Keep the counter as telemetry without double pay.
+            weight=0.0,
+            params=dict(packed_event_params),
         )
         self.rewards.s2_surface_style = RewTerm(
             func=mdp.dribbling_s2_surface_style,
-            weight=1.0,
-            params=dict(event_params),
+            # Valid contact already requires the labelled inside/outside side;
+            # retain this term for telemetry without paying a duplicate pulse.
+            weight=0.0,
+            params=dict(packed_event_params),
+        )
+        self.rewards.s2_excess_contact_force = RewTerm(
+            func=mdp.dribbling_s2_excess_contact_force_penalty,
+            # First clean run: do not trade away contact acquisition for an
+            # uncalibrated ball-impact magnitude. Retain telemetry/ablation.
+            weight=0.0,
+            params={
+                "ball_sensor_name": "soccer_ball_contact",
+                "start_force": 150.0,
+                "full_force": 250.0,
+                "max_penalty": 6.0,
+            },
         )
         self.rewards.s2_nonfoot_ball_contact = RewTerm(
             func=mdp.dribbling_s2_nonfoot_ball_contact_penalty,
-            weight=-5.0,
-            params=dict(event_params),
+            # The clean sensor intentionally reports only the two feet.
+            # Non-foot collision handling remains in robot safety terms.
+            weight=0.0,
+            params=dict(termination_event_params),
         )
         self.rewards.s2_wrong_foot_contact = RewTerm(
             func=mdp.dribbling_s2_wrong_foot_contact_penalty,
             weight=-1.0,
-            params=dict(event_params),
+            params=dict(termination_event_params),
+        )
+        self.rewards.s2_wrong_side_contact = RewTerm(
+            func=mdp.dribbling_s2_wrong_side_contact_penalty,
+            # Wrong-side contact also cannot unlock release/curriculum. This
+            # pulse makes an outer/inner switch failure explicit.
+            weight=-1.5,
+            params=dict(packed_event_params),
         )
         self.rewards.s2_premature_contact = RewTerm(
             func=mdp.dribbling_s2_premature_contact_penalty,
-            weight=-0.5,
-            params=dict(event_params),
+            weight=-1.0,
+            params=dict(termination_event_params),
         )
 
         # The inherited dribbling/CG classes define many objectives for other
-        # tasks. S2 exposes only its exact 22-term contract to RewardManager.
+        # tasks. S2 exposes only its exact 28-term contract to RewardManager
+        # (20 optimized terms plus eight zero-weight telemetry/ablation slots).
         _prune_s2_reward_manager(self)
 
         # Ball-lost is distance-only and debounced for 0.2 s.  Reference
@@ -1089,23 +1503,11 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
         self.terminations.dribbling_no_contact = None
         if hasattr(self.terminations, "ee_body_pos"):
             self.terminations.ee_body_pos = None
-        # A missed event ends only the short one/two-contact curriculum. Longer
-        # sequences keep running so the policy observes downstream physical
-        # state, while their consecutive-success streak is still reset.
-        self.terminations.missed_valid_contact = DoneTerm(
-            func=mdp.dribbling_missed_valid_contact,
-            params={
-                **dict(event_params),
-                "max_required_contact_count": 2,
-            },
-        )
-        self.terminations.invalid_acquisition_start = DoneTerm(
-            func=mdp.dribbling_s2_invalid_acquisition_start,
-            params={
-                **dict(event_params),
-                "acquisition_min_history_steps": 20,
-            },
-        )
+        # A missed event is an episode outcome, not an early termination.  A
+        # fixed prefix endpoint preserves comparable data and lets PPO observe
+        # the failed transition through its whole labelled window.
+        self.terminations.missed_valid_contact = None
+        self.terminations.invalid_acquisition_start = None
 
         # The ball always follows physics. Only the side-aware event region,
         # event approach/contact/release objectives and split penalties supervise it. Its
@@ -1121,30 +1523,49 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
             # Zero means that every selected event in the full clip must be
             # completed consecutively, rather than accepting an eight-touch
             # prefix as completion of a longer reference.
-            (2, 4, 8, 0, 0),
+            tuple(2 for _ in self.s2_curriculum_levels),
         )
         setattr(self.commands.motion, "dribble_cg_curriculum_start_level", 0)
+        # Compatibility-only: S2 no longer constructs a seconds-based window
+        # around one rising-edge frame; it uses the full labelled segment plus
+        # the explicit frame tolerance below.
         setattr(self.commands.motion, "dribble_cg_contact_window_seconds", 0.10)
-        setattr(self.commands.motion, "dribble_cg_missed_contact_grace_steps", 3)
+        # Manual video labels and 50-Hz PhysX contact onset can differ by a
+        # small number of frames.  Accept collisions within two frames of
+        # either end of the full annotated segment; event-table construction
+        # rejects any expansion that would overlap adjacent O1/O2 events.
+        setattr(
+            self.commands.motion,
+            "dribble_cg_contact_window_tolerance_frames",
+            2,
+        )
+        setattr(self.commands.motion, "dribble_cg_missed_contact_grace_steps", 0)
         setattr(self.commands.motion, "dribble_cg_release_window_steps", 8)
-        setattr(self.commands.motion, "dribble_cg_acquisition_initial_probability", 0.25)
+        # C2 requires only the ordered physical O1/O2 contacts. Keep the
+        # rollout alive through the complete unselected I3 window (plus one
+        # settling step) so O2 can settle and its signed outgoing position
+        # progress remains observable. I3 receives no contact reward here.
+        setattr(self.commands.motion, "dribble_cg_curriculum_lookahead_contact_phases", 1)
+        setattr(self.commands.motion, "dribble_cg_acquisition_initial_probability", 0.0)
         setattr(self.commands.motion, "dribble_cg_acquisition_min_history_steps", 20)
         setattr(self.commands.motion, "dribble_cg_acquisition_max_history_steps", 30)
         # Per level: (exact-reference probability, maximum initial radius).
-        # Levels 0--3 preserve the exact frame-0 reference state. Only the
-        # final full-clip level perturbs the ball once at reset; every later
-        # error still arises from ball physics and the preceding touches.
+        # Every clean-curriculum level preserves the exact frame-0 state; all
+        # later ball error must arise from physical policy contacts.
         setattr(
             self.commands.motion,
             "dribble_cg_curriculum_ball_spawn_jitter",
-            (
-                (1.00, 0.00),
-                (1.00, 0.00),
-                (1.00, 0.00),
-                (1.00, 0.00),
-                (0.20, 0.06),
-            ),
+            tuple((1.00, 0.00) for _ in self.s2_curriculum_levels),
         )
+        if not (
+            len(self.s2_curriculum_levels)
+            == len(self.commands.motion.dribble_cg_curriculum_required_contacts)
+            == len(self.commands.motion.dribble_cg_curriculum_ball_spawn_jitter)
+        ):
+            raise ValueError(
+                "S2 curriculum levels, required-contact counts, and spawn "
+                "jitter schedules must have identical lengths."
+            )
         setattr(
             self.commands.motion,
             "dribble_cg_ball_spawn_safe_forward_range",
@@ -1170,10 +1591,700 @@ class G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg(G1FlatCGDribblingEnvCfg):
                 "min_evaluation_episodes": 1024,
                 "required_consecutive_passes": 2,
                 "sequence_completion_threshold": 0.60,
+                "contact_success_threshold": 0.60,
+                # A partial level is defined only by real accepted contacts.
+                # The next level's newly required PhysX contact directly
+                # tests whether the previous touch produced the transition;
+                # no invented position radius is used for promotion.
+                "require_terminal_transition": False,
                 "max_fall_rate": 0.05,
                 "fall_termination_terms": ("anchor_pos_z", "anchor_ori"),
             },
         )
+
+
+@configclass
+class G1FlatCGDribblingUnifiedS2T2LocalReferenceEnvCfg(
+    G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg
+):
+    """Legacy T2-shaped variant of the ordered physical-contact curriculum."""
+
+    # One level: require O1/O2 in order and retain I3 as an unselected
+    # lookahead phase for outgoing-position telemetry.
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        event_params = dict(self.rewards.s2_contact_region_progress_v3.params["event_params"])
+        transition_params = {
+            "command_name": "motion",
+            "event_params": event_params,
+            "progress_max": 4.0,
+            "arrival_std": 0.02,
+        }
+        self.rewards.s2_transition_region_progress = RewTerm(
+            func=mdp.dribbling_s2_transition_region_progress,
+            weight=0.0,
+            params=dict(transition_params),
+        )
+        self.rewards.s2_transition_region_arrival = RewTerm(
+            func=mdp.dribbling_s2_transition_region_arrival,
+            weight=0.0,
+            params=dict(transition_params),
+        )
+        # Keep the physical task at exactly O1/O2, but continue through the
+        # complete unselected I3 window for transition telemetry.
+        setattr(
+            self.commands.motion,
+            "dribble_cg_curriculum_lookahead_contact_phases",
+            1,
+        )
+        setattr(
+            self.commands.motion,
+            "dribble_cg_curriculum_lookahead_start_level",
+            0,
+        )
+        self.curriculum.s2_contact_levels.params["require_terminal_transition"] = False
+        self.curriculum.s2_contact_levels.params["terminal_transition_start_level"] = 1
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2EnvCfg(
+    G1FlatCGDribblingUnifiedS2LocalReferenceEnvCfg
+):
+    """C2 -> T2 -> C3 on the verified Flat+reference-twist Stage-1 interface.
+
+    The inherited class supplies the ordered PhysX contact cursor and sparse
+    outgoing-anchor shaping.  The three levels intentionally have distinct
+    semantics: Level 0 learns the ordered O1/O2 contacts, Level 1 requires the
+    ball to reach the immutable offline I3 target during the annotated I3
+    window, and Level 2 adds the real I3 physical contact.
+    This subclass changes only the observation layout back to the one used by
+    ``Tracking-Flat-G1-Motion-RNN-reference-twist-v1``:
+
+    ``Flat proprioception + target point + destination + reference twist``.
+
+    The actor therefore receives the same semantics as the checkpoint it is
+    warm-started from.  The critic still receives the inherited privileged S2
+    sparse-contact context (the 19 additional values).
+    """
+
+    # C2 and T2 deliberately select the same two-contact prefix; their
+    # promotion criteria differ below. C3 then selects the third contact.
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+        ((2, 1.0),),
+        ((3, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Every sparse ball node is an offline annotation in the clean
+        # reference frame. Map it once through the episode reset XY+yaw
+        # transform; policy root/foot motion must never move the target.
+        self.commands.motion.dribble_cg_episode_fixed_contact_targets = True
+
+        # Restore the verified C2 -> C3 contact-acquisition pulse. Transition
+        # quality is trained separately by the signed Euclidean next-anchor
+        # potential and the absolute I3-window tracking objective.
+        self.rewards.s2_physical_contact_candidate_bonus.weight = 20.0
+
+        # The generic clean parent is also used by frozen C2 ablations and
+        # therefore defaults every level to two required contacts.  This task's
+        # three levels must instead be evaluated against their actual ordered
+        # prefix lengths.
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (2, 2, 3)
+        # L0 is contact-only C2. L1 is the distinct T2 ball-tracking stage:
+        # signed progress is active only for O2 -> I3 and promotion uses the
+        # absolute minimum fixed-target distance inside the I3 window. L2
+        # verifies the same transition with a real third physical contact.
+        self.commands.motion.dribble_cg_terminal_progress_levels = (1,)
+        self.commands.motion.dribble_cg_terminal_transition_mode = "absolute_window_min"
+        # The success scale comes from the simulated ball geometry rather
+        # than an independent centimetre threshold.
+        self.commands.motion.dribble_cg_ball_radius = SOCCER_BALL_RADIUS
+        self.curriculum.s2_contact_levels.params.update(
+            {
+                # L0: ordered O1/O2 only. L1: ordered O1/O2 plus absolute I3
+                # window tracking. L2 is the terminal three-contact task and
+                # is not promoted further.
+                "sequence_completion_thresholds": (0.80, 0.80, 0.60),
+                "require_terminal_transition": True,
+                "terminal_transition_start_level": 1,
+            }
+        )
+
+        # The formal route registers only mechanisms that affect optimization.
+        # Legacy point/region/release ablations remain available in their old
+        # tasks, but do not occupy RewardManager slots here. The delayed
+        # closure term is also removed: the same O2 collision must not receive
+        # both the candidate pulse and a second contact pulse.
+        self.commands.motion.dribble_cg_contact_region_path = ""
+        for reward_name in (
+            "s2_approach_progress",
+            "s2_coarse_contact_approach",
+            "s2_anchor_approach_progress_v2",
+            "s2_contact_region_progress_v3",
+            "s2_contact_region_arrival",
+            "s2_contact_proximity",
+            "s2_contact_anchor_arrival",
+            "s2_effective_touch_bonus",
+            "s2_next_touch_release",
+            "s2_next_touch_release_v2",
+            "s2_sequence_progress",
+            "s2_surface_style",
+            "s2_excess_contact_force",
+            "s2_nonfoot_ball_contact",
+        ):
+            setattr(self.rewards, reward_name, None)
+
+        # All active ball terms consume one canonical event-state contract.
+        # This avoids the historical "first RewardManager caller wins" cache
+        # behavior, where next-anchor parameters could be silently ignored if
+        # the contact candidate term ran first in the same step.
+        clean_event_params = dict(
+            self.rewards.s2_physical_contact_candidate_bonus.params[
+                "event_params"
+            ]
+        )
+        clean_event_params.update(
+            {
+                "release_min_target_distance": 0.0,
+                "release_arrival_progress_max": 4.0,
+            }
+        )
+        self.rewards.s2_physical_contact_candidate_bonus.params = {
+            "event_params": dict(clean_event_params)
+        }
+        self.rewards.s2_next_anchor_progress.params = {
+            "event_params": dict(clean_event_params)
+        }
+        self.rewards.s2_wrong_foot_contact.params = {
+            "event_params": dict(clean_event_params)
+        }
+        self.rewards.s2_wrong_side_contact.params = {
+            "event_params": dict(clean_event_params)
+        }
+        self.rewards.s2_premature_contact.params = {
+            "event_params": dict(clean_event_params)
+        }
+        self.rewards.s2_next_anchor_window_tracking = RewTerm(
+            func=mdp.dribbling_s2_next_anchor_window_tracking,
+            # Same maximum event budget as one +20 physical-contact pulse.
+            # The continuous [0,1] quality comes only from absolute D_min / Rball.
+            weight=20.0,
+            params={"event_params": dict(clean_event_params)},
+        )
+
+        # Restore the exact Flat Stage-1 target/destination terms.  The
+        # unified parent replaces these six values with a 3-D polar ball term
+        # plus a 3-D task-state term; equal dimensionality is not semantic
+        # compatibility for an RNN warm start.
+        _apply_soccer_obs(self)
+        self.observations.policy.anchor_ball_polar = None
+        self.observations.critic.anchor_ball_polar = None
+        self.observations.policy.motion_locomotion_task_state = None
+        self.observations.critic.motion_locomotion_task_state = None
+        self.observations.policy.motion_locomotion_polar_cmd = None
+        self.observations.critic.motion_locomotion_polar_cmd = None
+
+        # The Flat checkpoint's existing reference angular-velocity term must
+        # remain in the same slot; the appended twist is the only new actor
+        # input introduced by the verified Stage-1 task.
+        self.observations.policy.motion_ref_ang_vel = ObsTerm(
+            func=mdp.motion_anchor_ang_vel,
+            params={"command_name": "motion"},
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        self.observations.critic.motion_ref_ang_vel = ObsTerm(
+            func=mdp.motion_anchor_ang_vel,
+            params={"command_name": "motion"},
+        )
+
+        # Restore the actual Flat Stage-1 action path.  The unified parent
+        # installs the upper-body manifold action; that has the same 29-D
+        # shape but different execution semantics, so it must not be used for
+        # a warm start from the verified Flat checkpoint.
+        old_action_cfg = self.actions.joint_pos
+        self.actions.joint_pos = mdp.JointPositionActionCfg(
+            asset_name=old_action_cfg.asset_name,
+            joint_names=[".*"],
+            use_default_offset=old_action_cfg.use_default_offset,
+        )
+        self.actions.joint_pos.scale = old_action_cfg.scale
+        self.actions.joint_pos.offset = old_action_cfg.offset
+        self.observations.policy.actions = ObsTerm(func=mdp.last_action)
+        self.observations.critic.actions = ObsTerm(func=mdp.last_action)
+        self.rewards.action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clip, weight=-1.0e-1)
+        # Manifold-action telemetry has no meaning with the restored plain
+        # joint-position action and is removed rather than kept at weight zero.
+        self.rewards.upper_body_reference_overflow = None
+        self.rewards.upper_body_manifold_nullspace = None
+
+        # Restore Flat Stage-1 reset semantics.  The ball remains at the
+        # annotated first-contact placement for C2, while robot/reference
+        # initialization and domain-randomization conventions are unchanged.
+        self.commands.motion.reset_face_task_forward = True
+        self.commands.motion.reset_zero_velocity = True
+        self.commands.motion.pose_range = {
+            "x": (-0.05, 0.05),
+            "y": (-0.05, 0.05),
+            "z": (-0.01, 0.01),
+            "roll": (-0.1, 0.1),
+            "pitch": (-0.1, 0.1),
+            "yaw": (-0.2, 0.2),
+        }
+        self.commands.motion.velocity_range = {
+            "x": (-0.5, 0.5),
+            "y": (-0.5, 0.5),
+            "z": (-0.2, 0.2),
+            "roll": (-0.52, 0.52),
+            "pitch": (-0.52, 0.52),
+            "yaw": (-0.78, 0.78),
+        }
+        self.commands.motion.joint_position_range = (-0.1, 0.1)
+        self.commands.motion.curve_offset_range = {
+            "radius": (0.0, 0.0),
+            "lateral_spawn_jitter": 0.05,
+            "height": SOCCER_BALL_RADIUS,
+        }
+
+        # Keep the Flat Stage-1 motion prior exactly, with the single intended
+        # C2 exception: the event-window foot-position term controls the feet.
+        self.rewards.motion_body_pos.params["body_names"] = list(_STAGE1_LOCOMOTION_BODY_NAMES)
+        self.rewards.motion_body_pos.weight = 1.0
+        self.rewards.motion_body_ori.params["body_names"] = list(_STAGE1_LOCOMOTION_BODY_NAMES)
+        self.rewards.motion_body_ori.weight = 1.0
+        self.rewards.motion_body_lin_vel = None
+        self.rewards.motion_body_ang_vel = None
+        self.rewards.motion_upper_body_pos = RewTerm(
+            func=mdp.motion_relative_body_position_error_exp,
+            weight=0.85,
+            params={"command_name": "motion", "std": 0.3, "body_names": list(_STAGE1_UPPER_BODY_NAMES)},
+        )
+        self.rewards.motion_upper_body_ori = RewTerm(
+            func=mdp.motion_relative_body_orientation_error_exp,
+            weight=0.35,
+            params={"command_name": "motion", "std": 0.4, "body_names": list(_STAGE1_UPPER_BODY_NAMES)},
+        )
+        self.rewards.motion_leg_lin_vel = RewTerm(
+            func=mdp.motion_relative_body_linear_velocity_error_exp,
+            weight=0.4,
+            params={"command_name": "motion", "std": 1.0, "body_names": list(_STAGE1_LEG_VEL_BODY_NAMES)},
+        )
+        self.rewards.motion_leg_ang_vel = RewTerm(
+            func=mdp.motion_relative_body_angular_velocity_error_exp,
+            weight=0.4,
+            params={"command_name": "motion", "std": 3.14, "body_names": list(_STAGE1_LEG_VEL_BODY_NAMES)},
+        )
+        # Match the clean Stage-1 root-motion contract exactly.  Stage 2 may
+        # release the labelled foot in contact windows, but it must not change
+        # the meaning or reward coordinates of the reference twist.
+        self.rewards.motion_global_anchor_pos = None
+        self.rewards.motion_global_anchor_ori = None
+        self.rewards.motion_anchor_lin_vel = RewTerm(
+            func=mdp.motion_anchor_local_lin_vel_tracking_exp,
+            weight=2.2,
+            params={"command_name": "motion", "std": 1.0},
+        )
+        self.rewards.motion_anchor_ang_vel = RewTerm(
+            func=mdp.motion_anchor_local_ang_vel_tracking_exp,
+            weight=0.4,
+            params={"command_name": "motion", "std": 1.0},
+        )
+        self.rewards.motion_foot_pos = None
+
+
+@configclass
+class G1CleanV0Stage2C2EnvCfg(G1FlatCGDribblingReferenceTwistS2EnvCfg):
+    """Clean v0 C2 on the same 160-D deployable Actor as Stage 1.
+
+    The verified CUDA contact core is retained, while outgoing targets use
+    immutable reference pelvis-yaw XY nodes.  I3 arrival is introduced only
+    by the later T2 configuration.
+    """
+
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Keep the Flat reset pose/velocity/joint perturbations restored by
+        # the parent.  They were already part of the successful motion prior
+        # and are compatible with the episode-fixed node transform.  Interval
+        # pushes remain disabled in the focused interaction stages and can be
+        # reintroduced only after the ordered sequence is stable.
+
+        self.commands.motion.soccer_ball_generate_destination = False
+        self.commands.motion.dribble_cg_episode_fixed_contact_targets = True
+        # The clean contact core needs one filtered matrix containing both
+        # legal ankles and the remaining robot links.  Foot identity is still
+        # decided from the body index; the wider filter only makes a filtered
+        # non-foot collision an explicit failure instead of silently treating
+        # it as a ball-force event.  Ground is not part of this robot-only
+        # filter, so it cannot contaminate the foot channels.
+        self.scene.soccer_ball_contact.filter_prim_paths_expr = [
+            "{ENV_REGEX_NS}/Robot/.*",
+        ]
+        self.commands.motion.dribble_cg_contact_region_path = ""
+        # C2 is evaluated through the O2 window only. T2 explicitly turns
+        # the one-event lookahead back on so its I3 window can be observed.
+        self.commands.motion.dribble_cg_curriculum_lookahead_contact_phases = 0
+        self.commands.motion.dribble_cg_curriculum_start_level = 0
+        # The historical reference-twist parent owns a three-level probe and
+        # therefore writes (2, 2, 3).  Each diagnostic fixture must publish a
+        # tuple matching its own number of curriculum levels.
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (2,)
+
+        self.observations.policy.target_point_pos = ObsTerm(
+            func=mdp.ball_pos_pelvis_full,
+            params={"command_name": "motion"},
+        )
+        self.observations.critic.target_point_pos = ObsTerm(
+            func=mdp.ball_pos_pelvis_full,
+            params={"command_name": "motion"},
+        )
+        self.observations.policy.target_destination_pos_local = None
+        self.observations.critic.target_destination_pos_local = None
+
+        # C2 is contact-only.  T2 owns the next-window arrival pulse.
+        self.rewards.s2_next_anchor_window_tracking = None
+        # Clean-v0 has one physical-contact discovery pulse.  The historical
+        # effective/closure term paid again on the same O2 onset and is not a
+        # separate fact, so remove it rather than leaving a zero-weight
+        # wrapper in the active task.
+        self.rewards.s2_physical_contact_candidate_bonus.weight = 5.0
+        self.rewards.s2_effective_touch_bonus = None
+        for reward_name in (
+            "s2_approach_progress",
+            "s2_coarse_contact_approach",
+            "s2_anchor_approach_progress_v2",
+            "s2_contact_region_progress_v3",
+            "s2_contact_region_arrival",
+            "s2_contact_proximity",
+            "s2_contact_anchor_arrival",
+            "s2_next_touch_release",
+            "s2_next_touch_release_v2",
+            "s2_sequence_progress",
+            "s2_surface_style",
+            "s2_excess_contact_force",
+            "s2_nonfoot_ball_contact",
+        ):
+            setattr(self.rewards, reward_name, None)
+        event_params = dict(
+            self.rewards.s2_physical_contact_candidate_bonus.params["event_params"]
+        )
+        event_params["relative_node_targets"] = True
+        # C2 is deliberately acquisition-only.  The outgoing ball tracking
+        # potential is introduced by T2, so C2 cannot earn a transition return
+        # before the ordered O1/O2 contact fact is stable.
+        self.rewards.s2_next_anchor_progress = None
+        self.commands.motion.dribble_cg_terminal_progress_levels = ()
+        for reward_name in (
+            "s2_physical_contact_candidate_bonus",
+            "s2_next_anchor_progress",
+            "s2_wrong_foot_contact",
+            "s2_wrong_side_contact",
+            "s2_premature_contact",
+        ):
+            term = getattr(self.rewards, reward_name, None)
+            if isinstance(term, RewTerm):
+                term.params = {"event_params": dict(event_params)}
+        self.terminations.s2_nonfoot_contact = DoneTerm(
+            func=mdp.dribbling_s2_nonfoot_contact_termination,
+            params={"event_params": dict(event_params)},
+        )
+        self.terminations.s2_missed_contact = DoneTerm(
+            func=mdp.dribbling_s2_missed_contact_termination,
+            params={"event_params": dict(event_params)},
+        )
+
+
+@configclass
+class G1CleanV0Stage2T2EnvCfg(G1CleanV0Stage2C2EnvCfg):
+    """C2 plus absolute XY arrival at the next sparse node (T2)."""
+
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+        ((2, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.motion.dribble_cg_curriculum_lookahead_contact_phases = 1
+        self.commands.motion.dribble_cg_curriculum_lookahead_levels = (1,)
+        self.commands.motion.dribble_cg_curriculum_start_level = 0
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (2, 2)
+        self.commands.motion.dribble_cg_terminal_progress_levels = (1,)
+        self.commands.motion.dribble_cg_terminal_transition_mode = "absolute_window_min"
+        self.commands.motion.dribble_cg_ball_radius = SOCCER_BALL_RADIUS
+        self.curriculum.s2_contact_levels.params.update(
+            {
+                "require_terminal_transition": True,
+                "terminal_transition_start_level": 1,
+                "terminal_transition_levels": (1,),
+                "sequence_completion_thresholds": (0.80, 0.80),
+            }
+        )
+        event_params = dict(
+            self.rewards.s2_physical_contact_candidate_bonus.params["event_params"]
+        )
+        event_params["relative_node_targets"] = True
+        self.rewards.s2_next_anchor_progress = RewTerm(
+            func=mdp.dribbling_s2_next_anchor_progress,
+            weight=1.0,
+            params={"event_params": dict(event_params)},
+        )
+        self.rewards.s2_next_anchor_window_tracking = RewTerm(
+            func=mdp.dribbling_s2_next_anchor_window_tracking,
+            weight=20.0,
+            params={"event_params": event_params},
+        )
+
+
+@configclass
+class G1CleanV0Stage2C3EnvCfg(G1CleanV0Stage2T2EnvCfg):
+    """T2 followed by a real ordered I3 physical contact (C3)."""
+
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+        ((2, 1.0),),
+        ((3, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        # C3 ends at the I3 contact window.  The following I4 event is not
+        # needed until the C4/T4 stages.
+        self.commands.motion.dribble_cg_curriculum_lookahead_contact_phases = 0
+        self.commands.motion.dribble_cg_curriculum_start_level = 0
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (2, 2, 3)
+        # Only the T2 level (L1) evaluates the fixed I3 arrival.  At L2 the
+        # same target remains telemetry while the strict ordered third
+        # contact is the curriculum truth.
+        self.commands.motion.dribble_cg_terminal_progress_levels = (1,)
+        self.curriculum.s2_contact_levels.params.update(
+            {
+                "sequence_completion_thresholds": (0.80, 0.80, 0.60),
+                "require_terminal_transition": True,
+                "terminal_transition_start_level": 1,
+                "terminal_transition_levels": (1,),
+            }
+        )
+
+
+@configclass
+class G1CleanV0Stage2C4EnvCfg(G1CleanV0Stage2C3EnvCfg):
+    """Complete one ordered O/O/I/I contact unit."""
+
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+        ((2, 1.0),),
+        ((3, 1.0),),
+        ((4, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.motion.dribble_cg_curriculum_lookahead_contact_phases = 0
+        self.commands.motion.dribble_cg_curriculum_start_level = 0
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (2, 2, 3, 4)
+        # L1 remains T2.  L2/L3 are physical C3/C4 and therefore do not get
+        # an additional terminal arrival requirement in this class.
+        self.commands.motion.dribble_cg_terminal_progress_levels = (1,)
+        self.curriculum.s2_contact_levels.params.update(
+            {
+                "sequence_completion_thresholds": (0.80, 0.80, 0.60, 0.60),
+                "require_terminal_transition": True,
+                "terminal_transition_start_level": 1,
+                "terminal_transition_levels": (1,),
+            }
+        )
+
+
+@configclass
+class G1CleanV0Stage2T4EnvCfg(G1CleanV0Stage2C4EnvCfg):
+    """C4 plus absolute arrival of the next-cycle O1 node (T4)."""
+
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),
+        ((2, 1.0),),
+        ((3, 1.0),),
+        ((4, 1.0),),
+        ((4, 1.0),),
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.motion.dribble_cg_curriculum_lookahead_contact_phases = 1
+        self.commands.motion.dribble_cg_curriculum_lookahead_levels = (1, 4)
+        self.commands.motion.dribble_cg_curriculum_start_level = 0
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (2, 2, 3, 4, 4)
+        # L1 evaluates O2->I3; L4 evaluates I4->next-cycle O1.  The
+        # intermediate C3/C4 levels remain contact-only after their own
+        # physical node is reached.
+        self.commands.motion.dribble_cg_terminal_progress_levels = (1, 4)
+        self.curriculum.s2_contact_levels.params.update(
+            {
+                "sequence_completion_thresholds": (0.80, 0.80, 0.60, 0.60, 0.60),
+                "require_terminal_transition": True,
+                "terminal_transition_start_level": 1,
+                "terminal_transition_levels": (1, 4),
+            }
+        )
+
+
+@configclass
+class G1CleanV0Stage2EnvCfg(G1CleanV0Stage2T4EnvCfg):
+    """Formal clean Stage 2 with one internal dribbling curriculum.
+
+    The policy and optimizer remain continuous while the environment advances
+    through contact acquisition, sparse-node ball tracking, physical
+    verification, and a repeated O/O/I/I motif.  These are curriculum levels,
+    not separate checkpoint interfaces.
+    """
+
+    s2_curriculum_levels: tuple[tuple[tuple[int, float], ...], ...] = (
+        ((2, 1.0),),  # L0 C2: O1/O2 physical contacts.
+        ((2, 1.0),),  # L1 T2: C2 + I3 fixed-node arrival.
+        ((3, 1.0),),  # L2 C3: add physical I3 contact.
+        ((4, 1.0),),  # L3 C4: complete one O/O/I/I unit.
+        ((4, 1.0),),  # L4 T4: arrive at next-cycle O1.
+        ((8, 1.0),),  # L5 Repeat: two ordered O/O/I/I units.
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.motion.dribble_cg_curriculum_start_level = 0
+        self.commands.motion.dribble_cg_curriculum_required_contacts = (
+            2,
+            2,
+            3,
+            4,
+            4,
+            8,
+        )
+        # Only transition levels need an unselected next contact window and
+        # an absolute fixed-node arrival result. Physical-contact levels are
+        # judged directly by their newly required PhysX onset.
+        self.commands.motion.dribble_cg_curriculum_lookahead_contact_phases = 1
+        self.commands.motion.dribble_cg_curriculum_lookahead_levels = (1, 4)
+        self.commands.motion.dribble_cg_terminal_progress_levels = (1, 4)
+        self.curriculum.s2_contact_levels.params.update(
+            {
+                "sequence_completion_thresholds": (
+                    0.80,
+                    0.80,
+                    0.60,
+                    0.60,
+                    0.60,
+                    0.50,
+                ),
+                "require_terminal_transition": True,
+                "terminal_transition_start_level": 1,
+                "terminal_transition_levels": (1, 4),
+            }
+        )
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2Level1WindowOutcomeProbeBaseCfg(
+    G1FlatCGDribblingReferenceTwistS2EnvCfg
+):
+    """Matched Level-1 probe with the outcome state machine always enabled."""
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # A missing/legacy checkpoint must still enter the intended probe
+        # level.  A restored model_16000 checkpoint already contains Level 1.
+        self.commands.motion.dribble_cg_curriculum_start_level = 1
+        self.commands.motion.dribble_cg_enable_legacy_window_outcome = True
+        # Freeze the probe at Level 1; promotion would change the contact task
+        # and invalidate the control/outcome comparison.
+        self.curriculum.s2_contact_levels.params["min_evaluation_episodes"] = 1_000_000_000
+
+        # Reuse the exact packed event parameters of next-anchor progress.
+        # Both arms register and execute this term.  Only its scalar weight is
+        # changed by the outcome arm below.
+        self.rewards.s2_next_window_outcome = RewTerm(
+            func=mdp.dribbling_s2_next_window_outcome,
+            weight=0.0,
+            params={
+                "event_params": dict(
+                    self.rewards.s2_next_anchor_progress.params["event_params"]
+                )
+            },
+        )
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2Level1WindowOutcomeControlCfg(
+    G1FlatCGDribblingReferenceTwistS2Level1WindowOutcomeProbeBaseCfg
+):
+    """Control arm: full outcome telemetry, zero optimization weight."""
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2Level1WindowOutcome3Cfg(
+    G1FlatCGDribblingReferenceTwistS2Level1WindowOutcomeProbeBaseCfg
+):
+    """Treatment arm: the sole config difference is outcome weight 0 -> 3."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.rewards.s2_next_window_outcome.weight = 3.0
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2Level1DelayedSettlementCfg(
+    G1FlatCGDribblingReferenceTwistS2Level1WindowOutcomeProbeBaseCfg
+):
+    """Budget-conserving probe: small discovery pulse, delayed result settlement."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Do not add reward budget: move 15 of the current event's immediate
+        # contact value to its outgoing transition result.
+        self.rewards.s2_physical_contact_candidate_bonus.weight = 5.0
+        self.rewards.s2_delayed_transition_settlement = RewTerm(
+            func=mdp.dribbling_s2_delayed_transition_settlement,
+            weight=15.0,
+            params={
+                "event_params": dict(
+                    self.rewards.s2_next_anchor_progress.params["event_params"]
+                )
+            },
+        )
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2Level1FixedTargetAuditCfg(
+    G1FlatCGDribblingReferenceTwistS2Level1WindowOutcomeProbeBaseCfg
+):
+    """No-training audit using reset-fixed XY+yaw sparse contact targets."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.motion.dribble_cg_episode_fixed_contact_targets = True
+        self.commands.motion.dribble_cg_debug_live_target_comparison = True
+        self.commands.motion.debug_vis = True
+
+
+@configclass
+class G1FlatCGDribblingReferenceTwistS2Level1FixedTargetProgressProbeCfg(
+    G1FlatCGDribblingReferenceTwistS2Level1FixedTargetAuditCfg
+):
+    """Level-1 causal probe: only replace live targets with reset-fixed targets.
+
+    Reward weights, optimizer state, curriculum level, and the signed progress
+    implementation are inherited unchanged from the matched Level-1 control.
+    """
 
 
 @configclass

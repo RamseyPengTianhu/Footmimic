@@ -301,6 +301,15 @@ class TerminationsCfg:
             ],
         },
     )
+    # Clean soccer stages may opt into a filtered non-foot ball-contact
+    # failure.  Historical tracking tasks leave this disabled.
+    s2_nonfoot_contact = None
+    # Clean soccer stages may also fail the episode when the expected
+    # reference-clock contact window closes without a valid onset.  Keeping
+    # this opt-in preserves the historical tasks while making the clean
+    # state machine explicit: a missed node cannot leave hidden sequence
+    # state alive for the remainder of the rollout.
+    s2_missed_contact = None
 
 
 @configclass

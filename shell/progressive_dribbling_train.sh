@@ -4,7 +4,7 @@
 #   S1 local strict imitation -> S2 reference contact -> S3 local task dribbling
 #
 # Usage:
-#   DRIBBLE_MOTION_PATH=motions/master-single \
+#   DRIBBLE_MOTION_PATH=motions/master-aligned \
 #     bash shell/progressive_dribbling_train.sh [RUN_NAME]
 
 set -euo pipefail
@@ -12,7 +12,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 EXPERIMENT_DIR="${REPO_ROOT}/logs/rsl_rl/g1_dribbling"
-MOTION_PATH="${DRIBBLE_MOTION_PATH:-motions/master-single}"
+# Regenerated against the current contact-anchor geometry.  The first ball
+# anchor is held stationary from frame 0 until the first labelled contact.
+MOTION_PATH="${DRIBBLE_MOTION_PATH:-motions/master-aligned}"
 RUN_NAME="${1:-dribbling}"
 
 if [[ "$#" -gt 1 || "${RUN_NAME}" == --* ]]; then

@@ -305,8 +305,10 @@ def _make_contact_markers() -> VisualizationMarkers:
         prim_path="/World/Visuals/BallContact",
         markers={
             "contact": sim_utils.SphereCfg(
-                radius=SOCCER_BALL_RADIUS * 0.75,
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.95, 0.25)),
+                # A small red anchor makes the manually labelled contact
+                # location visible after the ball itself is hidden.
+                radius=SOCCER_BALL_RADIUS * 0.28,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.95, 0.08, 0.08)),
             ),
         },
     )
@@ -501,6 +503,9 @@ def run_simulator(sim: SimulationContext, scene: InteractiveScene, motion_files:
             ball_quat = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=sim.device)
             ball_lin_vel = motion.ball_lin_vel_w[t].unsqueeze(0)
             ball_ang_vel = torch.zeros(1, 3, device=sim.device)
+            is_contact = motion.cg_contact is not None and bool(motion.cg_contact[t].item())
+            # Keep the reference ball visible.  The contact marker below adds
+            # a small red point at its labelled position during contact.
             ball_state = torch.cat([ball_pos_w.unsqueeze(0), ball_quat, ball_lin_vel, ball_ang_vel], dim=-1)
             soccer_ball.write_root_state_to_sim(ball_state)
 
@@ -515,9 +520,14 @@ def run_simulator(sim: SimulationContext, scene: InteractiveScene, motion_files:
             )
 
             if motion.cg_contact is not None:
-                if bool(motion.cg_contact[t].item()):
+                if is_contact:
+                    # The ball mesh occludes a marker placed at its centre.
+                    # Raise the dot just above the ball so the labelled touch
+                    # remains visible from either recording camera.
+                    visible_contact_pos = ball_pos_w.unsqueeze(0).clone()
+                    visible_contact_pos[:, 2] += SOCCER_BALL_RADIUS + 0.015
                     contact_markers.visualize(
-                        translations=ball_pos_w.unsqueeze(0),
+                        translations=visible_contact_pos,
                         orientations=ball_quat,
                     )
                 else:

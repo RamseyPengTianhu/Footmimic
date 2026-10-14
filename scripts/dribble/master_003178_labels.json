@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "description": "Manual contact labels for master_003178_003326; frame indices are zero-based replay frames.",
+  "labels": {
+    "master_003178_003326_unitree_g1.npz": {
+      "kick_leg": "right",
+      "kick_frame": -1,
+      "kick_end_frame": -1,
+      "contact_segments": [
+        {"start": 24, "end": 28, "foot": "right", "surface": "inside_instep"},
+        {"start": 52, "end": 58, "foot": "right", "surface": "outside_instep"},
+        {"start": 81, "end": 86, "foot": "right", "surface": "inside_instep"},
+        {"start": 110, "end": 115, "foot": "right", "surface": "outside_instep"},
+        {"start": 141, "end": 146, "foot": "right", "surface": "inside_instep"},
+        {"start": 172, "end": 176, "foot": "right", "surface": "outside_instep"},
+        {"start": 202, "end": 209, "foot": "right", "surface": "inside_instep"},
+        {"start": 232, "end": 236, "foot": "right", "surface": "outside_instep"}
+      ],
+      "notes": "Manually reviewed replay; all eight contacts use the right foot with alternating inside/outside surfaces."
+    }
+  }
+}

@@ -8,8 +8,9 @@
       "kick_end_frame": -1,
       "contact_segments": [
         {"start": 35, "end": 40, "foot": "right", "surface": "outside_instep"},
+        {"start": 47, "end": 51, "foot": "right", "surface": "outside_instep"},
         {"start": 67, "end": 72, "foot": "right", "surface": "inside_instep"},
-        {"start": 85, "end": 90, "foot": "right", "surface": "outside_instep"},
+        {"start": 85, "end": 88, "foot": "right", "surface": "inside_instep"},
         {"start": 107, "end": 112, "foot": "right", "surface": "outside_instep"},
         {"start": 123, "end": 128, "foot": "right", "surface": "outside_instep"},
         {"start": 145, "end": 150, "foot": "right", "surface": "inside_instep"},

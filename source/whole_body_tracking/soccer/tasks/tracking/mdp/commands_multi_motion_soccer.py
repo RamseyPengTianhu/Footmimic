@@ -595,6 +595,13 @@ class MotionCommand(CommandTerm):
         # Target-point and soccer-ball generation logic.
         self.target_point_pos = torch.zeros(self.num_envs, 3, dtype=torch.float32, device=self.device)
         self.soccer_ball_pos = torch.zeros_like(self.target_point_pos)
+        # Optional Stage-1 ghost-ball offset.  It is sampled independently at
+        # episode reset and expressed in the actual pelvis-yaw frame.  Keeping
+        # this state separate from ``soccer_ball_pos`` prevents a long,
+        # translating motion clip from turning a bounded ball observation
+        # into a multi-metre value merely because the kinematic ghost stayed
+        # fixed in world space.
+        self.soccer_ball_workspace_offset_pelvis_yaw = torch.zeros_like(self.target_point_pos)
         self.target_destination_pos = torch.zeros_like(self.target_point_pos)
         # Save initial target position at resample for kick-direction computation.
         self.initial_target_point_pos = torch.zeros_like(self.target_point_pos)
@@ -1985,6 +1992,40 @@ class MotionCommand(CommandTerm):
             return
 
         spawn_mode = str(getattr(self.cfg, "soccer_ball_spawn_mode", "clip_displacement")).lower().strip()
+        if spawn_mode in {"workspace", "stage1_workspace", "ghost_workspace"}:
+            # Sample independently of the reference frame.  The first-frame
+            # anchor supplies only the episode-local origin; x/y are sampled
+            # in the fixed task heading frame, so ball observations cannot
+            # become a phase or motion-id shortcut.
+            x_range = getattr(self.cfg, "soccer_ball_workspace_x_range", (0.25, 0.80))
+            y_range = getattr(self.cfg, "soccer_ball_workspace_y_range", (-0.35, 0.35))
+            x = sample_uniform(float(x_range[0]), float(x_range[1]), (ids.numel(),), device=self.device)
+            y = sample_uniform(float(y_range[0]), float(y_range[1]), (ids.numel(),), device=self.device)
+            self.soccer_ball_workspace_offset_pelvis_yaw[ids, 0] = x
+            self.soccer_ball_workspace_offset_pelvis_yaw[ids, 1] = y
+            self.soccer_ball_workspace_offset_pelvis_yaw[ids, 2] = 0.0
+            mi = self.motion_idx[ids]
+            first_anchor = self.motion._body_pos_w[mi, 0, self.motion_anchor_body_index].clone()
+            self.soccer_ball_pos[ids, 0] = first_anchor[:, 0] + x
+            self.soccer_ball_pos[ids, 1] = first_anchor[:, 1] + y
+            self.soccer_ball_pos[ids, 2] = float(self._target_height)
+            return
+        if spawn_mode in {"reference_first_contact", "first_contact", "contact"}:
+            # Replay/diagnostic-only placement matching the annotated first
+            # contact in files that contain ball_pos_w.  Training Flat keeps
+            # its historical start-ahead randomization by default.
+            mi = self.motion_idx[ids]
+            contact_frames = self.motion.first_dribble_contact_frame[mi]
+            valid = (contact_frames >= 0) & self.motion.motion_has_ball_demo[mi]
+            safe_frames = contact_frames.clamp(min=0)
+            first_anchor = self.motion._body_pos_w[mi, 0, self.motion_anchor_body_index]
+            fallback = first_anchor.clone()
+            fallback[:, 0] += float(getattr(self.cfg, "soccer_ball_start_ahead_distance", 0.45))
+            fallback[:, 1] += float(getattr(self.cfg, "soccer_ball_start_ahead_lateral", 0.0))
+            fallback[:, 2] = float(self._target_height)
+            positions = self.motion.ball_pos_w[mi, safe_frames]
+            self.soccer_ball_pos[ids] = torch.where(valid.unsqueeze(-1), positions, fallback)
+            return
         if spawn_mode in {"start", "start_ahead", "motion_start"}:
             self._spawn_ball_at_motion_start(ids)
             return
@@ -2115,6 +2156,34 @@ class MotionCommand(CommandTerm):
         ball_state = torch.cat([ball_pos, ball_quat, ball_lin_vel, ball_ang_vel], dim=-1)
         self.soccer_ball.write_root_state_to_sim(ball_state, env_ids=ids)
 
+    def _follow_workspace_ghost_with_actual_pelvis(self):
+        """Keep the clean Stage-1 ghost at its sampled pelvis-yaw offset.
+
+        The ghost stays on the ground plane and follows only pelvis planar
+        translation and yaw.  Roll/pitch therefore remain observable through
+        the full-pelvis-frame ball observation without making the visual ball
+        float with the torso.  This path is explicitly opt-in and never runs
+        for physical Stage-2 balls.
+        """
+        if not bool(getattr(self.cfg, "soccer_ball_follow_actual_pelvis_yaw", False)):
+            return
+        if self.soccer_ball is None:
+            return
+
+        ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        pelvis_pos_w = self.robot.data.body_pos_w[:, self.robot_anchor_body_index]
+        pelvis_quat_w = self.robot.data.body_quat_w[:, self.robot_anchor_body_index]
+        offset_w = quat_apply(
+            yaw_quat(pelvis_quat_w), self.soccer_ball_workspace_offset_pelvis_yaw
+        )
+        env_origins = getattr(self._env.scene, "env_origins", None)
+        if env_origins is None:
+            return
+
+        self.soccer_ball_pos[:, :2] = pelvis_pos_w[:, :2] + offset_w[:, :2] - env_origins[:, :2]
+        self.soccer_ball_pos[:, 2] = float(self._target_height)
+        self._update_soccer_ball(ids)
+
     def _resample_command(self, env_ids: Sequence[int]):
         if len(env_ids) == 0:
             return
@@ -2165,7 +2234,8 @@ class MotionCommand(CommandTerm):
         self._compute_soccer_ball_positions(env_ids)
         self._update_soccer_ball(env_ids)
         self._update_target_points(env_ids)
-        self._update_destination_points(env_ids)
+        if bool(getattr(self.cfg, "soccer_ball_generate_destination", True)):
+            self._update_destination_points(env_ids)
         
         # Sample blind-zone min/max thresholds and reset blind-zone state.
         blind_min_low, blind_min_high = self.cfg.blind_distance_min_range
@@ -2257,6 +2327,10 @@ class MotionCommand(CommandTerm):
             else:
                 self._wrap_style_phase(env_ids)
         
+        # Clean Stage-1 only: preserve the episode-random, bounded ghost-ball
+        # observation while the reference motion translates through world.
+        self._follow_workspace_ghost_with_actual_pelvis()
+
         # Update target point each step using current ball position.
         self._update_target_points_from_sim()
 
@@ -2426,9 +2500,19 @@ class MotionCommandCfg(CommandTermCfg):
     # ``paid_original``: released PAiD Stage-I placement along the clip's planar displacement.
     # ``clip_displacement`` (legacy dribble): frame-0 anchor + ||last-first|| along +X.
     # ``start_ahead``: fixed distance along +X from frame-0 anchor.
+    # ``workspace``: sample an episode-independent local ball position around
+    # the frame-0 pelvis.  This is used by clean Stage-1 only so ball position
+    # cannot encode reference phase.
     soccer_ball_spawn_mode: str = "clip_displacement"
     soccer_ball_start_ahead_distance: float = 0.45
     soccer_ball_start_ahead_lateral: float = 0.0
+    soccer_ball_workspace_x_range: tuple[float, float] = (0.25, 0.80)
+    soccer_ball_workspace_y_range: tuple[float, float] = (-0.35, 0.35)
+    # Clean Stage-1 opt-in.  A kinematic, collision-free workspace ghost keeps
+    # the sampled planar offset relative to the *actual* pelvis yaw.  Physical
+    # soccer tasks must leave this false.
+    soccer_ball_follow_actual_pelvis_yaw: bool = False
+    soccer_ball_generate_destination: bool = True
 
     # Reset pose: face task +X and drop reference velocities (reduces frame-0 ee_body_pos fails).
     reset_face_task_forward: bool = False

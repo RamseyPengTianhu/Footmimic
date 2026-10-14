@@ -62,6 +62,25 @@ def _apply_soccer_scene(cfg):
         },
     )
 
+
+def _apply_stage1_ghost_ball(cfg) -> None:
+    """Keep the Stage-1 ball channel while removing robot-ball dynamics.
+
+    Stage 1 is a motion prior, not an interaction learner.  A collision-free,
+    gravity-free ball provides the same observation schema and bounded reset
+    support without teaching the motion policy to avoid a physical obstacle.
+    Stage 2 owns the real collision-enabled ball configuration.
+    """
+    ball_spawn = cfg.scene.soccer_ball.spawn
+    cfg.scene.soccer_ball.spawn = ball_spawn.replace(
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            kinematic_enabled=True,
+            disable_gravity=True,
+        ),
+        collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+    )
+    cfg.commands.motion.target_destination_marker_cfg = None
+
 ## Scene configuration
 
 @configclass

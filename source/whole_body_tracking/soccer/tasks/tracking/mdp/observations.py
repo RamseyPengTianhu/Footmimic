@@ -103,6 +103,47 @@ def motion_anchor_ang_vel(env: ManagerBasedEnv, command_name: str) -> torch.Tens
     return command.anchor_ang_vel_w.view(env.num_envs, -1)
 
 
+def ball_pos_pelvis_heading(env: ManagerBasedEnv, command_name: str = "motion") -> torch.Tensor:
+    """Return the measured ball centre in the current pelvis-yaw frame.
+
+    This is the deployable Stage-1/Stage-2 ball channel.  It deliberately uses
+    the *actual* scene ball and the actual pelvis pose; it is not a command
+    target, an offline contact anchor, or a simulator velocity signal.  Roll
+    and pitch are removed so the convention matches a gravity-aligned planar
+    control frame.  A body-mounted measurement needs an additional leveling
+    transform before it can use this representation.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    soccer_ball = getattr(command, "soccer_ball", None)
+    if soccer_ball is None:
+        soccer_ball = env.scene["soccer_ball"]
+    ball_pos_w = soccer_ball.data.root_pos_w[:, :3]
+    pelvis_pos_w = command.robot_anchor_pos_w[:, :3]
+    pelvis_yaw_q = yaw_quat(command.robot_anchor_quat_w)
+    return quat_apply(quat_inv(pelvis_yaw_q), ball_pos_w - pelvis_pos_w)
+
+
+def ball_pos_pelvis_full(env: ManagerBasedEnv, command_name: str = "motion") -> torch.Tensor:
+    """Return the measured ball centre in the current full pelvis frame.
+
+    Unlike :func:`ball_pos_pelvis_heading`, this observation retains pelvis
+    roll and pitch.  That matches the historical Flat body-frame contract and
+    the direct deployment transform from a body-mounted ball measurement.  It
+    still reads the actual scene ball: no command target, annotated contact
+    node, ball velocity, or simulator-only state is exposed to the actor.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    soccer_ball = getattr(command, "soccer_ball", None)
+    if soccer_ball is None:
+        soccer_ball = env.scene["soccer_ball"]
+    ball_pos_w = soccer_ball.data.root_pos_w[:, :3]
+    # Use the explicit pelvis state rather than relying on the configurable
+    # imitation anchor continuing to be named ``pelvis`` in every future task.
+    pelvis_pos_w = command.robot_pelvis_pos_w[:, :3]
+    pelvis_quat_w = command.robot_pelvis_quat_w
+    return quat_apply(quat_inv(pelvis_quat_w), ball_pos_w - pelvis_pos_w)
+
+
 def _motion_anchor_yaw_delta_quat_obs(command: MotionCommand) -> torch.Tensor:
     """Yaw delta for locomotion commands (matches mimic vel reward terms)."""
     return mimic_anchor_yaw_delta_quat(

@@ -19,10 +19,13 @@ _S2_CURRICULUM_SCALAR_NAMES = (
     "_s2_curriculum_contact_success_sum",
     "_s2_curriculum_side_success_sum",
     "_s2_curriculum_side_attempt_count",
+    "_s2_curriculum_first_release_quality_sum",
+    "_s2_curriculum_first_release_quality_count",
     "_s2_curriculum_sequence_success_sum",
     "_s2_curriculum_sequence_episode_count",
     "_s2_curriculum_last_contact_success_rate",
     "_s2_curriculum_last_correct_side_rate",
+    "_s2_curriculum_last_first_release_quality_rate",
     "_s2_curriculum_last_sequence_completion_rate",
     "_s2_curriculum_last_fall_rate",
     "_s2_curriculum_last_event_coverage",
@@ -86,7 +89,22 @@ def _s2_curriculum_signature(command) -> tuple:
             command.cfg, "dribble_cg_curriculum_required_contacts", ()
         )
     )
-    return levels, required_contacts
+    terminal_progress_levels = tuple(
+        int(level)
+        for level in getattr(command.cfg, "dribble_cg_terminal_progress_levels", ())
+    )
+    lookahead_levels = tuple(
+        int(level)
+        for level in getattr(command.cfg, "dribble_cg_curriculum_lookahead_levels", ())
+    )
+    return (
+        levels,
+        required_contacts,
+        terminal_progress_levels,
+        lookahead_levels,
+        str(getattr(command.cfg, "dribble_cg_terminal_transition_mode", "arrival_radius")),
+        bool(getattr(command.cfg, "dribble_cg_episode_fixed_contact_targets", False)),
+    )
 
 
 def set_s2_training_iteration(
@@ -212,8 +230,9 @@ def restore_s2_curriculum_state(
     current_signature = _s2_curriculum_signature(command)
     if state.get("curriculum_signature") != current_signature:
         # A saved numeric level is not portable across schedules. Retain the
-        # policy/optimizer state, but restart only the curriculum so a former
-        # random-window level cannot masquerade as a frame-0 prefix level.
+        # policy/optimizer state, but restart the active schedule from its
+        # first level.  The clean route has one Stage-2 schedule, so a
+        # signature mismatch must never jump into its middle.
         set_s2_curriculum_level(
             target,
             0,
