@@ -1582,7 +1582,12 @@ class DribbleCGMotionCommand(MotionCommand):
         )
         if not regions_only:
             super()._set_debug_vis_impl(debug_vis)
-        if debug_vis:
+        # Tasks swap ``class_type`` onto a plain ``MotionCommandCfg``, which has
+        # none of the S2 marker configs; those tasks simply get no S2 markers.
+        has_s2_markers = hasattr(self.cfg, "s2_fixed_target_marker_cfg") and hasattr(
+            self.cfg, "s2_live_target_marker_cfg"
+        )
+        if debug_vis and has_s2_markers:
             if not hasattr(self, "s2_contact_event_foot_visualizer"):
                 self.s2_contact_event_foot_visualizer = VisualizationMarkers(
                     self.cfg.body_visualizer_cfg.replace(

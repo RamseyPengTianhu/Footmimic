@@ -154,6 +154,18 @@ D1、D2 评测需额外记录第 8、16 次触球时机器人与 reference 的�
 | 4 | phase_audit 是否被训练使用 | **不使用**(仅 `compile_contact_nodes.py` 写出)。且该指标有缺陷:intent 含 `next_event_id`,每个事件互不相同,导致 48/48 触球帧必然"不一致"。改为 (脚, 表面) 后 mismatch = 42/245 = 17.1%;触球帧 15/48 不一致(多在窗口边缘,如 57→116、86→29),背景帧 27/197 的最近邻落在触球上。结论:歧义存在但远小于 30.6%,是否需要 phase 通道由 D1 结果决定。 |
 | 5 | 更新过时脚本 | 新增 `shell/clean_v0_dribbling_train.sh`(stage1 / stage2 两个子命令,`bash -n` 语法通过,**未执行**);`progressive_dribbling_train.sh` 标注 DEPRECATED;`eval_dribble_references.sh` 默认 task 改为 `Tracking-Flat-G1-CleanV0-Stage2-RNN`(其默认 LOAD_RUN/CHECKPOINT 仍是旧值,使用时必须显式传参)。`scripts/rsl_rl/eval_references.py` 的帮助文本仍写旧 task 名,不影响功能。 |
 
+### D1 冒烟测试(2026-10-14,64 envs × 10 iter,Ref 1,C2 task)
+
+- 环境:conda `isaaclab45_211`(其 `soccer` 包指向本仓库;`isaaclab45_211_ablation` 指向 `projects/ab/Footmimic`,不要混用)。
+  文档里早先写的 `isaaclab_211` 和 `/data/isaacsim/setup_conda_env.sh` 在本机不存在,Isaac Sim 为 pip 安装,无需 source。
+- **发现并修复 1 个 bug**:`commands_dribble_cg.py::_set_debug_vis_impl` 在 `class_type` 被换成盘带命令、而 cfg 仍是
+  `MotionCommandCfg` 时访问不存在的 `s2_fixed_target_marker_cfg`,环境创建即崩。已加保护(没有 S2 marker cfg 就不建 S2 标记)。
+- 修复后:Stage1 `model_6999.pt` 成功加载(日志:obs/action 接口自动适配、obs normalizer 扩展、S2 optimizer 与策略 std 重置、
+  curriculum 从 level 0 开始);10 个 iteration 正常完成,无 NaN/崩溃。第 10 轮 mean reward 4.34,mean episode length 43 步,
+  终止几乎全部是 `s2_missed_contact`(符合从未接触过球的起点预期);contact_success_rate 为 0,10 轮不足以判断。
+- 注意:resume 后 iteration 计数从 7000 继续,`--max_iterations N` 表示再训练 N 轮。
+- 冒烟 run 目录:`logs/rsl_rl/g1_dribbling/2026-10-14_15-18-31_d1_smoke_ref1`(可删除)。
+
 ### 下一步:D1
 - 用 `shell/clean_v0_dribbling_train.sh stage2` 以 `model_6999.pt` 起步,先用 `Tracking-Flat-G1-CleanV0-Stage2-C2-RNN`(设 `S2_TASK`)小规模探针,两条 reference 各一次
 - 记录:run 名、checkpoint、有序 2 接触成功率、正确面率、摔倒率、第 8/16 次触球偏差(C2 仅 2 接触,第 8/16 次偏差需在 D2 才有)
