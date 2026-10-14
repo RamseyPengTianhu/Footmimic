@@ -16,7 +16,7 @@ LOAD_RUN="${1:-2026-06-09_23-57-01_resumed}"
 CHECKPOINT="${2:-model_100000.pt}"
 NUM_ROLLOUTS="${3:-3}"
 MOTION_PATH="${DRIBBLE_MOTION_PATH:-motions/master-aligned}"
-TASK="${EVAL_TASK:-Tracking-CG-G1-Dribbling-RNN-unified-s2-local-reference}"
+TASK="${EVAL_TASK:-Tracking-Flat-G1-CleanV0-Stage2-RNN}"
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate isaaclab_211

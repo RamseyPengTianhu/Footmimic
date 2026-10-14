@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Train the only supported dribbling curriculum:
+# DEPRECATED (retired unified-s1/s2/s3-local tasks). Use shell/clean_v0_dribbling_train.sh.
+# Previously: the only supported dribbling curriculum:
 #   S1 local strict imitation -> S2 reference contact -> S3 local task dribbling
 #
 # Usage:

@@ -28,11 +28,10 @@
                                                          └─► compile_contact_nodes.py ──► *.nodes.json (+ phase_audit)
 ```
 
-注意:grep 源码没有发现 `nodes.json` 被训练代码直接加载,它看起来是**审计/可视化产物**
-(含每个事件的 `node_xy`、`next_node_xy`、`time_to_next_contact_frames`)。训练时的节点来自 npz 里的
-`ball_pos_w` 与 contact 数组,再由命令类在每个 episode 开始时按 reference pelvis-yaw 坐标系**固定下来**
-(`dribble_cg_episode_fixed_contact_targets = True`,代码在 `mdp/commands_dribble_cg.py`)。
-如需确认两者完全一致,应对比 `nodes.json` 与 npz 的 `ball_pos_w`——这一点我没有验证。
+注意:`nodes.json` **不被训练读取**,是审计产物。训练时命令类(`commands_dribble_cg.py:645-677`)从 npz 的
+`ball_pos_w` 和 contact 数组,用与 compiler 相同的公式(事件起始帧、参考骨盆 yaw 系下的球相对位置)重算节点;
+对 Reference 2 的重算与 nodes.json 差 6e-8 m。世界系的触球锚点则在每个 episode 开始时按
+reference→actual 的 yaw 对齐固定(`dribble_cg_episode_fixed_contact_targets=True`)。
 
 节点坐标系:reference pelvis heading,只比较 XY 距离(`distance_dimensions: xy`)。
 **节点是离线、不可变的**,不跟随机器人实时 root 移动。
@@ -139,14 +138,14 @@ Runner:`G1DribblingS2RecurrentPPORunnerCfg`(init std 0.40,entropy 0.001,warm-sta
 - **Stage1 放 ghost ball**:Actor 的球通道在两阶段同构,Stage2 不需要改网络输入层,也不会让动作先验学到「躲球」。
 - **非对称 Actor/Critic**:未来节点等特权信息只给 Critic,保持 Actor 可部署。
 
-## 5. 已知问题/未验证点(与训练逻辑相关)
+## 5. 已知问题(D0 核对后)
 
-1. **C4/T4/Repeat 写死 O/O/I/I**,而 Reference 2 是 I/O 严格交替(24 I, 52 O, 81 I, …),事件序列不匹配。
-   `s2_curriculum_levels` 里的 `(2,3,4,8)` 是「前 N 个有序接触」,对 Reference 2 来说 L0 的前两个接触是 I,O,而代码语义写的是 O1/O2,需要核对是否按事件序号而非表面类型选择。
-2. **Reference 2 phase audit**:`nearest_intent_mismatch_rate=0.306`,非接触帧最近邻常落在其他意图,可能暗示相位歧义。
-3. **Stage2 尚无任何 clean-v0 训练 run**,以上 Stage2 行为均来自配置阅读,没有实测数据。
-4. `nodes.json` 与 npz 内 `ball_pos_w` 的一致性、命令类如何把 npz 转为 episode-fixed 节点,本文只据代码注释与字段推断,未逐行追踪。
-5. 旧脚本 `shell/progressive_dribbling_train.sh`、`eval_dribble_references.sh` 仍指向旧 task。
+1. ~~C4/T4 写死 O/O/I/I~~ **已核实**:`required_contacts` 是有序事件个数,不看表面类型,Reference 2 可直接用 L0–L5。
+2. **phase audit**:原 30.6% 被指标缺陷夸大(intent 含 `next_event_id`);按 (脚, 表面) 重算为 17.1%,训练也不读取该文件。影响待 D1 判断。
+3. **Stage2 尚无任何 clean-v0 训练 run**,Stage2 行为均来自配置阅读。
+4. ~~nodes.json 一致性~~ **已核实**:训练不读 nodes.json,从 npz 用同一公式重算,与 nodes.json 差 6e-8 m。
+5. 世界系触球锚点按回合起点固定,整条 clip 不重锚;持续盘带需按周期重新锚定(见 HANDOFF 第 7 节)。
+6. 旧脚本已处理,见 HANDOFF D0-5。
 
 ## 6. 复现与排查路径
 
