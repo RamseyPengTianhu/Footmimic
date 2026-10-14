@@ -69,6 +69,7 @@ def main() -> int:
         foot_collision_radius=0.01,
         foot_contact_x=args.inside_foot_contact_x,
         outside_foot_contact_x=args.outside_foot_contact_x,
+        outside_lateral_inset=0.0,
         foot_half_width=0.026,
         foot_contact_z=-0.025,
         terminal_forward_limit=0.12,
