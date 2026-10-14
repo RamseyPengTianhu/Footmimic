@@ -5397,3 +5397,34 @@ def dribbling_pelvis_local_face_ball(
         (offset_b[:, 0] / distance.clamp(min=1.0e-4)).clamp(min=0.0, max=1.0),
         torch.ones_like(distance),
     )
+
+
+def dribbling_ball_pelvis_tracking_exp(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    std: float = 0.25,
+) -> torch.Tensor:
+    """Dense object-tracking reward: ball XY in the pelvis-yaw frame vs the reference.
+
+    The reference ball is expressed in the *reference* pelvis-yaw frame at the
+    current clip frame; the actual ball in the robot's own pelvis-yaw frame.
+    The comparison is body-relative, so it cannot accumulate world-frame drift,
+    needs no contact event, foot or surface label, and keeps the ball inside the
+    pelvis-relative range the actor's ball observation was trained on.  With a
+    broad ``std`` it only asks for "the ball roughly where the human had it".
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    ball = env.scene["soccer_ball"]
+    motion_idx = command.motion_idx.to(torch.long)
+    last = command.motion.ball_pos_w.shape[1] - 1
+    frame = command.time_steps.to(torch.long).clamp(min=0, max=last)
+    anchor = command.motion_anchor_body_index
+    ref_ball = command.motion.ball_pos_w[motion_idx, frame]
+    ref_pelvis = command.motion.body_pos_w[motion_idx, frame, anchor]
+    ref_pelvis_quat = command.motion.body_quat_w[motion_idx, frame, anchor]
+    ref_rel = quat_apply_inverse(yaw_quat(ref_pelvis_quat), ref_ball - ref_pelvis)
+    actual_rel = quat_apply_inverse(
+        yaw_quat(command.robot_anchor_quat_w), ball.data.root_pos_w - command.robot_anchor_pos_w
+    )
+    error_sq = torch.sum(torch.square(actual_rel[:, :2] - ref_rel[:, :2]), dim=-1)
+    return torch.exp(-error_sq / float(std) ** 2)

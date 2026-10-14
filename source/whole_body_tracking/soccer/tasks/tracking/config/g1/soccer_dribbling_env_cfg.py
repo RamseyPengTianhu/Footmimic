@@ -2337,3 +2337,46 @@ class G1FlatCGDribblingUnifiedS3LocalTaskEnvCfg(G1FlatCGDribblingEnvCfg):
         setattr(self.commands.motion, "dribble_cg_ball_spawn_mode", "reference_first_contact")
         setattr(self.commands.motion, "dribble_cg_fixed_touch_foot", None)
         setattr(self.commands.motion, "dribble_cg_fixed_touch_surface", None)
+
+
+@configclass
+class G1CleanV1BallTrackEnvCfg(G1CleanV0Stage2C2EnvCfg):
+    """Clean-v1: Stage-1 motion prior + one dense pelvis-frame ball-tracking term.
+
+    No contact-event machinery is used for learning.  Each episode runs the whole
+    clip and ends only on a fall, a lost ball, or the clip end.  Touch counts,
+    window hits, correct foot/side and node arrival are evaluation metrics (see
+    ``scripts/dribble/probe_policy_foot_ball.py``), never rewards or terminations.
+    """
+
+    ball_track_weight: float = 2.0
+    ball_track_std: float = 0.25
+
+    def __post_init__(self):
+        super().__post_init__()
+        cmd = self.commands.motion
+        # ``0`` = every labelled event, i.e. a full-clip episode from frame 0.
+        cmd.dribble_cg_curriculum_levels = (((0, 1.0),),)
+        cmd.dribble_cg_curriculum_required_contacts = (0,)
+        cmd.dribble_cg_curriculum_start_level = 0
+        cmd.dribble_cg_curriculum_lookahead_contact_phases = 0
+        cmd.dribble_cg_terminal_progress_levels = ()
+        self.curriculum.s2_contact_levels = None
+
+        for name in (
+            "s2_physical_contact_candidate_bonus",
+            "s2_wrong_foot_contact",
+            "s2_wrong_side_contact",
+            "s2_premature_contact",
+            "s2_next_anchor_progress",
+            "s2_next_anchor_window_tracking",
+        ):
+            setattr(self.rewards, name, None)
+        self.terminations.s2_missed_contact = None
+        self.terminations.s2_nonfoot_contact = None
+
+        self.rewards.ball_pelvis_tracking = RewTerm(
+            func=mdp.dribbling_ball_pelvis_tracking_exp,
+            weight=self.ball_track_weight,
+            params={"command_name": "motion", "std": self.ball_track_std},
+        )

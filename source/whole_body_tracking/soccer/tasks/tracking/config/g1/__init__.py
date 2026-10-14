@@ -125,3 +125,8 @@ _register(
     soccer_dribbling_env_cfg.G1FlatCGDribblingUnifiedS3LocalTaskEnvCfg,
     "G1DribblingRecurrentPPORunnerCfg",
 )
+_register(
+    "Tracking-Flat-G1-CleanV1-BallTrack-RNN",
+    soccer_dribbling_env_cfg.G1CleanV1BallTrackEnvCfg,
+    "G1CleanV1RecurrentPPORunnerCfg",
+)
