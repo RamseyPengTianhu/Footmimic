@@ -11,6 +11,7 @@ from .events import *  # noqa: F401, F403
 from .observations import *  # noqa: F401, F403
 from .rewards import *  # noqa: F401, F403
 from .rewards_dribbling import *  # noqa: F401, F403
+from .ball_physics import ball_constant_deceleration_event, ball_rolling_resistance_event  # noqa: F401
 from .terminations import *  # noqa: F401, F403
 
 from .commands_multi_motion_soccer import *  # noqa: F401, F403
