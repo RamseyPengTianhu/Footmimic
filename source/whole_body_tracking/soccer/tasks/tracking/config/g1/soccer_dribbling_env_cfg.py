@@ -2350,7 +2350,8 @@ class G1CleanV1BallTrackEnvCfg(G1CleanV0Stage2C2EnvCfg):
     """
 
     ball_track_weight: float = 2.0
-    ball_track_std: float = 0.25
+    ball_track_std: float = 0.5
+    ball_track_shape: str = "exponential"
 
     def __post_init__(self):
         super().__post_init__()
@@ -2378,5 +2379,9 @@ class G1CleanV1BallTrackEnvCfg(G1CleanV0Stage2C2EnvCfg):
         self.rewards.ball_pelvis_tracking = RewTerm(
             func=mdp.dribbling_ball_pelvis_tracking_exp,
             weight=self.ball_track_weight,
-            params={"command_name": "motion", "std": self.ball_track_std},
+            params={
+                "command_name": "motion",
+                "std": self.ball_track_std,
+                "shape": self.ball_track_shape,
+            },
         )

@@ -5403,6 +5403,7 @@ def dribbling_ball_pelvis_tracking_exp(
     env: ManagerBasedRLEnv,
     command_name: str = "motion",
     std: float = 0.25,
+    shape: str = "gaussian",
 ) -> torch.Tensor:
     """Dense object-tracking reward: ball XY in the pelvis-yaw frame vs the reference.
 
@@ -5412,6 +5413,10 @@ def dribbling_ball_pelvis_tracking_exp(
     needs no contact event, foot or surface label, and keeps the ball inside the
     pelvis-relative range the actor's ball observation was trained on.  With a
     broad ``std`` it only asks for "the ball roughly where the human had it".
+
+    ``shape="exponential"`` uses ``exp(-d/std)`` instead of ``exp(-d^2/std^2)``.  The
+    Gaussian is ~0.001 at the 0.65 m errors a frozen Stage-1 policy leaves, i.e. no
+    gradient exactly where one is needed; the exponential keeps a long-range gradient.
     """
     command: MotionCommand = env.command_manager.get_term(command_name)
     ball = env.scene["soccer_ball"]
@@ -5427,4 +5432,8 @@ def dribbling_ball_pelvis_tracking_exp(
         yaw_quat(command.robot_anchor_quat_w), ball.data.root_pos_w - command.robot_anchor_pos_w
     )
     error_sq = torch.sum(torch.square(actual_rel[:, :2] - ref_rel[:, :2]), dim=-1)
+    if shape == "exponential":
+        return torch.exp(-torch.sqrt(error_sq + 1.0e-12) / float(std))
+    if shape != "gaussian":
+        raise ValueError(f"unknown shape {shape!r}")
     return torch.exp(-error_sq / float(std) ** 2)

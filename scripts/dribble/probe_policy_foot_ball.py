@@ -32,6 +32,7 @@ parser.add_argument("--num_envs", type=int, default=32)
 parser.add_argument("--output", type=str, required=True)
 parser.add_argument("--noise_std", type=float, default=0.0, help="Gaussian noise added to policy actions (emulates exploration std)")
 parser.add_argument("--hold_ball_ahead", action="store_true", help="Causal test: teleport the ball to 0.5 m ahead of the pelvis every step (Stage-1 like ball observation)")
+parser.add_argument("--keep_ball_lost", action="store_true", help="Keep the ball_lost termination (evaluate under the task's normal terminations)")
 parser.add_argument("--max_steps", type=int, default=0, help="0 = clip length + 20")
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -73,7 +74,7 @@ def main(env_cfg, agent_cfg):
     cmd_cfg.dribble_cg_curriculum_start_level = 0
     cmd_cfg.dribble_cg_curriculum_lookahead_contact_phases = 0
     cmd_cfg.dribble_cg_terminal_progress_levels = ()
-    for name in ("s2_missed_contact", "s2_nonfoot_contact", "ball_lost"):
+    for name in ("s2_missed_contact", "s2_nonfoot_contact") + (() if args_cli.keep_ball_lost else ("ball_lost",)):
         if hasattr(env_cfg.terminations, name):
             setattr(env_cfg.terminations, name, None)
     if hasattr(env_cfg.curriculum, "s2_contact_levels"):
