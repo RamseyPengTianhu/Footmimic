@@ -19,6 +19,7 @@ parser.add_argument("--const_mu", type=float, default=None, help="constant-decel
 parser.add_argument("--force_scale", type=float, default=1.0)
 parser.add_argument("--velocity_decel", type=float, default=None, help="engine-independent constant deceleration [m/s^2] applied to the velocity every physics step")
 parser.add_argument("--update_every", type=int, default=1, help="physics steps between force updates (4 = policy rate)")
+parser.add_argument("--vz", type=float, default=0.0, help="initial upward speed [m/s] (airborne test)")
 parser.add_argument("--rolling_start", action="store_true", help="start with the spin of pure rolling instead of sliding")
 parser.add_argument("--angular_damping", type=float, default=None)
 AppLauncher.add_app_launcher_args(parser)
@@ -58,16 +59,17 @@ def main():
     bs[:, :3] = origins + torch.tensor([0.0, 0.0, 0.11], device=dev)
     bs[:, 7:] = 0.0
     bs[:, 7] = torch.tensor(args_cli.speeds, device=dev)
+    bs[:, 9] = args_cli.vz
     if args_cli.rolling_start:
         bs[:, 11] = bs[:, 7] / 0.11  # omega_y = v / R for rolling along +x
     ball.write_root_state_to_sim(bs)
     steps = int(args_cli.seconds / dt)
-    t_axis, speeds, angs, xs = [], [], [], []
+    t_axis, speeds, angs, xs, zs = [], [], [], [], []
     for k in range(steps):
         if args_cli.const_mu is not None and k % args_cli.update_every == 0:
-            apply_ball_rolling_resistance(ball, args_cli.const_mu, hold_dt=args_cli.update_every * dt, force_scale=args_cli.force_scale)
+            apply_ball_rolling_resistance(ball, args_cli.const_mu, hold_dt=args_cli.update_every * dt, force_scale=args_cli.force_scale, ground_z=origins[:, 2])
         if args_cli.velocity_decel is not None:
-            apply_ball_velocity_level_deceleration(ball, args_cli.velocity_decel, dt=dt)
+            apply_ball_velocity_level_deceleration(ball, args_cli.velocity_decel, dt=dt, ground_z=origins[:, 2])
         scene.write_data_to_sim()
         sim.step(render=False)
         scene.update(dt)
@@ -76,8 +78,9 @@ def main():
             speeds.append(torch.linalg.vector_norm(v, dim=-1).cpu().numpy())
             angs.append(torch.linalg.vector_norm(ball.data.root_ang_vel_w, dim=-1).cpu().numpy())
             xs.append((ball.data.root_pos_w[:, 0] - origins[:, 0]).cpu().numpy())
+            zs.append(ball.data.root_pos_w[:, 2].cpu().numpy())
             t_axis.append((k + 1) * dt)
-    np.savez(args_cli.output, t=np.array(t_axis), speed=np.array(speeds), ang=np.array(angs), x=np.array(xs), v0=np.array(args_cli.speeds))
+    np.savez(args_cli.output, t=np.array(t_axis), speed=np.array(speeds), ang=np.array(angs), x=np.array(xs), z=np.array(zs), v0=np.array(args_cli.speeds))
     print("[ROLL] saved", args_cli.output)
     os._exit(0)
 
