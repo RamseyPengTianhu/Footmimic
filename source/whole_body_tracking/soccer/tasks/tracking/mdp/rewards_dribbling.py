@@ -5437,3 +5437,36 @@ def dribbling_ball_pelvis_tracking_exp(
     if shape != "gaussian":
         raise ValueError(f"unknown shape {shape!r}")
     return torch.exp(-error_sq / float(std) ** 2)
+
+
+def dribbling_ball_front_zone(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    x_min: float = 0.15,
+    x_max: float = 0.70,
+    y_half_width: float = 0.40,
+    softness: float = 0.25,
+) -> torch.Tensor:
+    """Ball-in-front-zone reward (pelvis-yaw frame, current pose; see ``ball_reward_math``)."""
+    from soccer.tasks.tracking.mdp.ball_reward_math import front_zone_reward
+
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    ball = env.scene["soccer_ball"]
+    local = _pelvis_yaw_local_vector(command, ball.data.root_pos_w[:, :3] - command.robot_pelvis_pos_w)
+    return front_zone_reward(local[:, :2], (x_min, x_max), y_half_width, softness)
+
+
+def dribbling_ball_velocity_follow(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    std: float = 0.5,
+    shape: str = "exponential",
+) -> torch.Tensor:
+    """Ball velocity follows the commanded body velocity ``[vx, vy]`` (pelvis-yaw frame)."""
+    from soccer.tasks.tracking.mdp.ball_reward_math import velocity_follow_reward
+
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    ball = env.scene["soccer_ball"]
+    ball_vel_local = _pelvis_yaw_local_vector(command, ball.data.root_lin_vel_w[:, :3])
+    cmd = command.locomotion_twist_command_b().view(env.num_envs, -1)[:, :2]
+    return velocity_follow_reward(ball_vel_local[:, :2], cmd, std, shape)
