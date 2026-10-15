@@ -81,6 +81,25 @@ def _apply_stage1_ghost_ball(cfg) -> None:
     )
     cfg.commands.motion.target_destination_marker_cfg = None
 
+def apply_ball_damping(scene_cfg, linear_damping: float | None = None, angular_damping: float | None = None) -> None:
+    """Add rolling resistance to the soccer ball.
+
+    ``None`` leaves the asset's own value (current behaviour: the ball barely decelerates, ~3 %/s).
+    Linear damping gives an exponential speed decay ``dv/dt = -c*v``; angular damping slows the spin
+    and, through rolling without slipping, the translation.  This must be a helper rather than a scene
+    field: ``InteractiveScene`` treats every scene-cfg attribute as an asset.  The final values must
+    match the main line (see DRIBBLE_HANDOFF.md).
+    """
+    if linear_damping is None and angular_damping is None:
+        return
+    scene_cfg.soccer_ball.spawn = scene_cfg.soccer_ball.spawn.replace(
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            linear_damping=linear_damping,
+            angular_damping=angular_damping,
+        )
+    )
+
+
 ## Scene configuration
 
 @configclass

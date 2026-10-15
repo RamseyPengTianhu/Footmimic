@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", type=str, required=True)
 parser.add_argument("--speeds", type=float, nargs="+", default=[0.5, 1.0, 1.5, 2.0, 3.0])
 parser.add_argument("--seconds", type=float, default=3.0)
+parser.add_argument("--linear_damping", type=float, default=None)
+parser.add_argument("--angular_damping", type=float, default=None)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.enable_cameras = False
@@ -26,7 +28,7 @@ import isaaclab.sim as sim_utils  # noqa: E402
 from isaaclab.scene import InteractiveScene  # noqa: E402
 
 from soccer.robots.g1 import G1_CYLINDER_CFG  # noqa: E402
-from soccer.tasks.tracking.config.g1.soccer_flat_env_cfg import G1FlatSoccerSceneCfg  # noqa: E402
+from soccer.tasks.tracking.config.g1.soccer_flat_env_cfg import G1FlatSoccerSceneCfg, apply_ball_damping  # noqa: E402
 
 
 def main():
@@ -34,6 +36,7 @@ def main():
     sim = sim_utils.SimulationContext(sim_utils.SimulationCfg(device=args_cli.device, dt=dt))
     n = len(args_cli.speeds)
     cfg = G1FlatSoccerSceneCfg(num_envs=n, env_spacing=6.0)
+    apply_ball_damping(cfg, args_cli.linear_damping, args_cli.angular_damping)
     cfg.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     scene = InteractiveScene(cfg)
     sim.reset()
