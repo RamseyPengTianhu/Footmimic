@@ -34,6 +34,7 @@ parser.add_argument("--noise_std", type=float, default=0.0, help="Gaussian noise
 parser.add_argument("--hold_ball_ahead", action="store_true", help="Causal test: teleport the ball to 0.5 m ahead of the pelvis every step (Stage-1 like ball observation)")
 parser.add_argument("--keep_ball_lost", action="store_true", help="Keep the ball_lost termination (evaluate under the task's normal terminations)")
 parser.add_argument("--cycle_reward_len", type=int, default=0, help="Attach dribbling_cycle_velocity_follow with this cycle length (touch events) and log its per-step value (smoke test of the env glue; adds to the reward, no learning here)")
+parser.add_argument("--no_early_stop", action="store_true", help="Keep stepping through auto-resets until --max_steps (episode-boundary tests; per-env metrics then only describe the first episode)")
 parser.add_argument("--max_steps", type=int, default=0, help="0 = clip length + 20")
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -207,7 +208,7 @@ def main(env_cfg, agent_cfg):
                 else torch.zeros_like(newly_done)
             )
         alive = alive & ~dones.bool()
-        if not alive.any():
+        if not alive.any() and not args_cli.no_early_stop:
             break
 
     num_ev = int(cmd._s2_event_count_by_motion[0].item()) if has_s2 else 0
