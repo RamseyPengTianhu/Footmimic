@@ -94,5 +94,21 @@ with torch.no_grad():
 check("checkpoint round trip identical", torch.equal(y1, y2), f"max diff {float((y1 - y2).abs().max()):.2e}")
 check("normalizer buffers saved", any("stud_norm" in k for k in policy.state_dict()) and any("ref_norm" in k for k in policy.state_dict()))
 
+# KL warm-up schedule and free bits
+sched = lr.LatentPPO(lr.LatentActorCritic(OBS, C, A).to(dev), kl_coef=0.02, kl_free_bits=0.5, kl_warmup_iters=2, kl_ramp_iters=4, device=dev)
+coefs = []
+for k in range(8):
+    sched.num_updates = k
+    coefs.append(round(sched.current_kl_coef(), 4))
+check("KL warm-up then linear ramp", coefs == [0.0, 0.0, 0.0, 0.005, 0.01, 0.015, 0.02, 0.02], str(coefs))
+small = torch.full((4, 3, 8), 0.1, device=dev, requires_grad=True)
+sched.policy.kl_batch_dims = small
+loss_small = sched.kl_loss(); loss_small.backward()
+check("free bits: dims below the floor cost a constant and give no gradient", abs(float(loss_small) - 8 * 0.5) < 1e-6 and float(small.grad.abs().sum()) == 0.0)
+big = torch.full((4, 3, 8), 1.0, device=dev, requires_grad=True)
+sched.policy.kl_batch_dims = big
+loss_big = sched.kl_loss(); loss_big.backward()
+check("free bits: dims above the floor are penalised", abs(float(loss_big) - 8.0) < 1e-5 and float(big.grad.abs().sum()) > 0.0)
+
 print("\nALL PASSED" if not fails else f"\nFAILED: {fails}")
 raise SystemExit(1 if fails else 0)

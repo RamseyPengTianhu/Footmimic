@@ -165,6 +165,9 @@ class LatentActorCriticCfg(RslRlPpoActorCriticCfg):
 class LatentPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
     class_name: str = "LatentPPO"
     kl_coef: float = 0.01
+    kl_free_bits: float = 0.0  # nats per z dimension
+    kl_warmup_iters: int = 0
+    kl_ramp_iters: int = 0
 
 
 @configclass
@@ -200,6 +203,16 @@ class G1LatentDribbleDaRunnerCfg(G1FlatPPORunnerCfg):
 
 @configclass
 class G1LatentDribbleDbRunnerCfg(G1LatentDribbleDaRunnerCfg):
-    """D-b (Stage 1' formal)."""
+    """D-b (Stage 1' formal).
+
+    Run 1 (plain 0.01 * KL from iteration 0) collapsed the posterior onto the prior.  Run 2 uses free bits
+    (0.5 nat per z dimension) and a KL warm-up: 0 for 1000 iterations, then a linear ramp to 0.01 over 1000.
+    """
 
     save_interval = 500
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.algorithm.kl_free_bits = 0.5
+        self.algorithm.kl_warmup_iters = 1000
+        self.algorithm.kl_ramp_iters = 1000
