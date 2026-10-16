@@ -536,3 +536,19 @@ Reference 2 有 75% 的间隔一开始就在 0.25 m 内(直接判成"触球"),10
 **需求 2:无事件时软相位的编码。** 站立/行走片段没有触球事件,现在支线置全 0(阶段 one-hot 全 0)。接口是否允许,还是应该定义一个"空闲"阶段?
 
 **需求 3(提醒):** 观测里没有触球面的"未指定 vs 指定"之外的不确定度;盘带标签只有内/外两类,映射到 `inner`/`outer`,没有 `front_inner`/`front_outer` 的区分(数据里也区分不出来)。
+
+
+### 17.4 D-a 步骤 3:PPO 包装(已完成,未训练)
+- 新文件 `soccer/utils/latent_rl.py`(共享网络原样使用):
+  - `LatentActorCritic`:actor = 编码器后验 z → 共享跟踪器;PPO 阶段 z 取后验均值(确定性),动作对数概率就是跟踪器输出周围的高斯;
+    critic = LSTM + MLP(特权观测)。actor 记忆把先验 LSTM(1 层)和跟踪器 LSTM(2 层)沿层维打包成一对 (h, c) [3, N, 256]——
+    RSL-RL 的存储要求 actor 与 critic 的隐状态张量个数相同。
+  - `LatentPPO`:RSL-RL 2.3.3 `PPO.update` 的核心路径 + `kl_coef × KL(后验‖先验)`;对称、RND、多 GPU 打开时直接报错。
+  - 导入时把两个类名登记进 RSL-RL runner 的命名空间(runner 用 `eval` 解析 `class_name`),RSL-RL 本身未修改。
+- runner 配置 `G1LatentDribbleDaRunnerCfg`:关闭 RSL-RL 的经验归一化(共享网络自带归一化,否则部署时还要多导出一个归一化器);
+  `kl_coef=0.01`、初始动作噪声 0.2、其余 PPO 参数同 Stage 1。
+- RSL-RL 只把 `policy` 组交给 actor,所以 env 的 `policy` 组 = 学生 134 + 参考窗口 177 = 311 维,在 `LatentActorCritic` 内切开;
+  先验与跟踪器只看前 134 维。单独的 `ref` 组已删除。
+- 验收 `scripts/dribble/test_latent_rl.py`(无 Isaac,合成数据,16 项全过):一次完整循环 PPO 迭代损失有限且含 KL;编码器、先验、跟踪器、critic、动作噪声都有梯度;
+  先验模式能前向;state_dict 存取后输出完全一致;归一化缓冲区随 checkpoint 保存。Isaac 中 `check_latent_obs.py` 复查:policy 311、critic 292、两种模式前向、全部有限值。
+- 尚未验证:真实环境里的训练循环、runner 的 save/load(`MotionOnPolicyRunner` 自带热启动加载逻辑)——留到步骤 4 冒烟。

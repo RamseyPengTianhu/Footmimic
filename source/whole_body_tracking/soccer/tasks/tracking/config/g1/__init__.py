@@ -131,10 +131,9 @@ _register(
     "G1CleanV1RecurrentPPORunnerCfg",
 )
 
-# Interface v1 (shared latent skill net).  D-a = Stage 1' smoke; the runner cfg is a placeholder until the latent
-# actor-critic wrapper exists (the env alone is used by scripts/dribble/check_latent_obs.py).
+# Interface v1 (shared latent skill net).  D-a = Stage 1' smoke.
 _register(
     "Tracking-Flat-G1-LatentDribble-Da",
     latent_dribble_env_cfg.G1LatentDribbleDaEnvCfg,
-    "G1CleanV0Stage1RecurrentPPORunnerCfg",
+    "G1LatentDribbleDaRunnerCfg",
 )

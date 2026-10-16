@@ -3,9 +3,11 @@
 D-a (Stage 1' smoke): latent motion tracking on the clean-v0 Stage-1 environment (tracking rewards, ghost ball,
 no ball interaction), with the observation groups re-laid-out to interface v1:
 
-  policy (134)  student observation seen by the prior and the tracker, in the shared order
-                proprio 93 | ball 10 | body command 3 | current event 13 | soft phase 4 | next event 11
-  ref    (177)  encoder input (reference window), training only
+  policy (311)  = student (134) | reference window (177)
+                student: proprio 93 | ball 10 | body command 3 | current event 13 | soft phase 4 | next event 11,
+                in the shared order -- the only input of the prior and the tracker;
+                reference window: encoder input, training only.  RSL-RL passes the actor a single tensor, so the two
+                are concatenated here and split again inside ``soccer.utils.latent_rl.LatentActorCritic``.
   critic        unchanged privileged observation of the clean-v0 Stage-1 task
 """
 
@@ -63,10 +65,10 @@ class G1LatentDribbleDaEnvCfg(G1CleanV0Stage1EnvCfg):
             src = getattr(parent, name, None)
             if src is not None:
                 getattr(student, name).noise = src.noise
+        # Reference window appended last (transport only; see the module docstring).
+        student.ref_window = ObsTerm(func=latent_obs.latent_ref_window, params={"command_name": "motion"})
         self.observations.policy = student
-        self.observations.ref = LatentRefObsCfg()
 
 
-# Dimensions the groups must have (checked by scripts/dribble/check_latent_obs.py).
-EXPECTED_POLICY_DIM = se.OBS_DIM  # 134
-EXPECTED_REF_DIM = se.REF_DIM  # 177
+# Dimensions the policy group must have (checked by scripts/dribble/check_latent_obs.py).
+EXPECTED_POLICY_DIM = se.OBS_DIM + se.REF_DIM  # 134 + 177 = 311

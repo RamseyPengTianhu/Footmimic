@@ -144,3 +144,55 @@ class G1CleanV1RecurrentPPORunnerCfg(G1DribblingS2RecurrentPPORunnerCfg):
     def __post_init__(self):
         super().__post_init__()
         self.policy.init_noise_std = 0.20
+
+
+# --- interface v1: shared latent skill net (dribble line) -------------------------------------------------
+import soccer.utils.latent_rl  # noqa: E402,F401  (registers LatentActorCritic / LatentPPO with the RSL-RL runner)
+
+
+@configclass
+class LatentActorCriticCfg(RslRlPpoActorCriticCfg):
+    """Actor = shared LatentSkillNet (posterior z -> tracker); critic = LSTM + MLP on the privileged obs."""
+
+    class_name: str = "LatentActorCritic"
+    student_dim: int = 134
+    ref_dim: int = 177
+    z_dim: int = 8
+    critic_rnn_hidden_dim: int = 256
+
+
+@configclass
+class LatentPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
+    class_name: str = "LatentPPO"
+    kl_coef: float = 0.01
+
+
+@configclass
+class G1LatentDribbleDaRunnerCfg(G1FlatPPORunnerCfg):
+    """D-a smoke runner.  The shared net normalises its own inputs, so RSL-RL's empirical normalisation is off
+    (otherwise deployment would need an extra exported normaliser that the shared interface does not have)."""
+
+    experiment_name = "g1_dribbling"
+    save_interval = 50
+    empirical_normalization = False
+    policy = LatentActorCriticCfg(
+        init_noise_std=0.2,
+        actor_hidden_dims=[],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = LatentPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        kl_coef=0.01,
+    )

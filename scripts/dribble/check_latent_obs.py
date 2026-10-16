@@ -63,8 +63,9 @@ def main(env_cfg, agent_cfg):
     obs, _ = env.reset()
     ok = True
     print("[CHECK] groups:", {k: tuple(v.shape) for k, v in obs.items()})
-    pol, ref = obs["policy"], obs["ref"]
-    for name, got, want in (("policy", pol.shape[-1], se.OBS_DIM), ("ref", ref.shape[-1], se.REF_DIM)):
+    full = obs["policy"]
+    pol, ref = full[:, : se.OBS_DIM], full[:, se.OBS_DIM :]
+    for name, got, want in (("policy (student + ref)", full.shape[-1], se.OBS_DIM + se.REF_DIM), ("student", pol.shape[-1], se.OBS_DIM), ("ref", ref.shape[-1], se.REF_DIM)):
         print(f"[CHECK] {name} dim {got} (expected {want}) -> {'OK' if got == want else 'MISMATCH'}")
         ok &= got == want
     S = slices()
@@ -100,7 +101,7 @@ def main(env_cfg, agent_cfg):
         rows.append((t, mi, f, stage, float(ph[3]), int(ev[0]), region, float(ev[9] / se.TARGET_SCALE), float(ev[10] / se.TARGET_SCALE), int(nx[0])))
         finite &= bool(torch.isfinite(pol).all() and torch.isfinite(ref).all())
         obs, _, term, trunc, _ = env.step(torch.zeros(base.num_envs, base.action_manager.total_action_dim, device=base.device))
-        pol, ref = obs["policy"], obs["ref"]
+        pol, ref = obs["policy"][:, : se.OBS_DIM], obs["policy"][:, se.OBS_DIM :]
         hidden = net.reset_hidden(hidden, term | trunc)
     print(f"[CHECK] all observations finite over {args_cli.steps} steps: {finite}")
     names = ["approach", "contact", "follow"]
