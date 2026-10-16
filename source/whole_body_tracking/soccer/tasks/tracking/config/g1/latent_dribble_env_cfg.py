@@ -72,3 +72,27 @@ class G1LatentDribbleDaEnvCfg(G1CleanV0Stage1EnvCfg):
 
 # Dimensions the policy group must have (checked by scripts/dribble/check_latent_obs.py).
 EXPECTED_POLICY_DIM = se.OBS_DIM + se.REF_DIM  # 134 + 177 = 311
+
+
+@configclass
+class G1LatentDribbleDbEnvCfg(G1LatentDribbleDaEnvCfg):
+    """D-b: Stage 1' formal (latent motion tracking, no ball interaction).
+
+    Same as D-a plus the wide-distribution ghost ball (``mdp/latent_ghost_ball.py``) so the ball observation already
+    covers balls behind, beside and far from the robot and moving relative to it, as the real ball will in Stage 2'.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        from isaaclab.managers import EventTermCfg as EventTerm
+
+        from soccer.tasks.tracking.mdp import latent_ghost_ball
+
+        step_dt = self.sim.dt * self.decimation
+        self.events.latent_ghost_reset = EventTerm(func=latent_ghost_ball.ghost_ball_reset, mode="reset")
+        self.events.latent_ghost_step = EventTerm(
+            func=latent_ghost_ball.ghost_ball_step,
+            mode="interval",
+            interval_range_s=(step_dt, step_dt),
+            is_global_time=True,
+        )

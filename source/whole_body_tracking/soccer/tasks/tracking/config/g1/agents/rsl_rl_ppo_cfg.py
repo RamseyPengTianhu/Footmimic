@@ -196,3 +196,10 @@ class G1LatentDribbleDaRunnerCfg(G1FlatPPORunnerCfg):
         max_grad_norm=1.0,
         kl_coef=0.01,
     )
+
+
+@configclass
+class G1LatentDribbleDbRunnerCfg(G1LatentDribbleDaRunnerCfg):
+    """D-b (Stage 1' formal)."""
+
+    save_interval = 500

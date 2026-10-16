@@ -85,6 +85,7 @@ def main(env_cfg, agent_cfg):
     hidden = net.init_hidden(base.num_envs, base.device)
     rows = []
     finite = True
+    ball_pos_hist, ball_vel_hist = [], []
     for t in range(args_cli.steps):
         with torch.no_grad():
             act_post, st, hidden_post = net.step(pol, hidden, ref=ref, use_prior=False)
@@ -100,10 +101,18 @@ def main(env_cfg, agent_cfg):
         region = int(torch.argmax(ev[1:1 + se.NUM_REGIONS])) if ev[1:1 + se.NUM_REGIONS].sum() > 0 else -1
         rows.append((t, mi, f, stage, float(ph[3]), int(ev[0]), region, float(ev[9] / se.TARGET_SCALE), float(ev[10] / se.TARGET_SCALE), int(nx[0])))
         finite &= bool(torch.isfinite(pol).all() and torch.isfinite(ref).all())
+        bslice = pol[:, S["ball"]]
+        ball_pos_hist.append(bslice[:, 0:3].detach().cpu()); ball_vel_hist.append(bslice[:, 3:6].detach().cpu())
         obs, _, term, trunc, _ = env.step(torch.zeros(base.num_envs, base.action_manager.total_action_dim, device=base.device))
         pol, ref = obs["policy"][:, : se.OBS_DIM], obs["policy"][:, se.OBS_DIM :]
         hidden = net.reset_hidden(hidden, term | trunc)
     print(f"[CHECK] all observations finite over {args_cli.steps} steps: {finite}")
+    bp = torch.cat(ball_pos_hist); bv = torch.cat(ball_vel_hist)
+    q = torch.tensor([0.01, 0.25, 0.5, 0.75, 0.99])
+    print(f"[CHECK] ball pos (pelvis frame) x quantiles {[round(v, 2) for v in torch.quantile(bp[:, 0], q).tolist()]}, "
+          f"y {[round(v, 2) for v in torch.quantile(bp[:, 1], q).tolist()]}; behind the pelvis (x<0): {float((bp[:, 0] < 0).float().mean()):.2f}")
+    sp = torch.linalg.vector_norm(bv[:, :2], dim=-1)
+    print(f"[CHECK] ball speed (pelvis frame) quantiles {[round(v, 2) for v in torch.quantile(sp, q).tolist()]}")
     names = ["approach", "contact", "follow"]
     print(f"[CHECK] trace env {trace_env} (motion {os.path.basename(cmd.cfg.motion_files[rows[0][1]])}): t frame stage progress right region target_xy has_next")
     last = None
