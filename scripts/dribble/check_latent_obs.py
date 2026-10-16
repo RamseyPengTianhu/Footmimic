@@ -21,6 +21,7 @@ parser.add_argument("--task", required=True)
 parser.add_argument("--motion_path", required=True)
 parser.add_argument("--num_envs", type=int, default=96)
 parser.add_argument("--steps", type=int, default=160)
+parser.add_argument("--trace_motion", type=str, default="", help="substring of the motion file to trace")
 parser.add_argument("--no_terminations", action="store_true", help="keep episodes running to trace the reference clock (phase only uses reference geometry)")
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -73,7 +74,12 @@ def main(env_cfg, agent_cfg):
     print(f"[CHECK] clips with events: {int((cache.ev_count > 0).sum())}/{cache.ev_count.numel()}, total events {cache.num_events_total}; "
           f"envs on a dribble clip at reset: {int(has_ev.sum())}/{base.num_envs}")
     print(f"[CHECK] possession column all 1: {bool(torch.all(pol[:, S['ball']][:, -1] == 1.0))}")
-    trace_env = int(torch.nonzero(has_ev).flatten()[0]) if has_ev.any() else 0
+    pick = has_ev.clone()
+    if args_cli.trace_motion:
+        names = [os.path.basename(f) for f in cmd.cfg.motion_files]
+        want = torch.tensor([args_cli.trace_motion in names[int(m)] for m in cmd.motion_idx], device=has_ev.device)
+        pick &= want
+    trace_env = int(torch.nonzero(pick).flatten()[0]) if pick.any() else 0
     net = LatentSkillNet(obs_dim=se.OBS_DIM, ref_dim=se.REF_DIM).to(base.device)
     hidden = net.init_hidden(base.num_envs, base.device)
     rows = []

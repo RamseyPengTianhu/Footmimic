@@ -34,6 +34,8 @@ from isaaclab.utils.math import quat_apply, quat_apply_inverse, yaw_quat
 
 from soccer.latent import skill_event as se
 
+DRIBBLE_REACH = 0.18  # m; touches happen at 0.12-0.16 m ball-centre to region-centre in both references
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -100,7 +102,11 @@ class _DribbleEventCache:
             for k in range(int(self.ev_count[i]) - 1, -1, -1):
                 self.cur[i, frames <= self.ev_end[i, k]] = k
         n = env.num_envs
-        self.phase = se.SoftPhase(n, dev)
+        # Dribble-line soft-phase settings (env side; the shared SoftPhase class is used unchanged):
+        # reach 0.18 m instead of the shoot/pass default 0.25 m, plus "re-arm" and "no miss rule", implemented by
+        # gating the distance fed to SoftPhase.update (see latent_soft_phase and DRIBBLE_HANDOFF.md section 17).
+        self.phase = se.SoftPhase(n, dev, reach=DRIBBLE_REACH)
+        self.armed = torch.ones(n, dtype=torch.bool, device=dev)
         self.last_key = torch.full((n,), -2, dtype=torch.long, device=dev)
         self.num_events_total = int(self.ev_count.sum())
 
@@ -199,7 +205,16 @@ def latent_soft_phase(env: ManagerBasedRLEnv, command_name: str = "motion") -> t
     new = key != c.last_key
     c.phase.start_event(new & has, dist)
     c.last_key = key
-    out = c.phase.update(dist, touched)
+    # Re-arm: a new event that starts with the ball already inside reach (normal in dribbling, the ball stays near
+    # the foot) may only enter "contact" after the ball has left reach once.
+    reach = c.phase.reach
+    c.armed = torch.where(new & has, dist > reach, c.armed | (dist > reach))
+    in_approach = c.phase.stage == se.APPROACH
+    in_contact = c.phase.stage == se.CONTACT
+    d = torch.where(in_approach & ~c.armed, torch.maximum(dist, reach + 1e-3), dist)
+    # No miss rule for dribbling: leave "contact" only on the touch, never because the ball drifted away.
+    d = torch.where(in_contact, torch.minimum(d, 1.5 * reach), d)
+    out = c.phase.update(d, touched)
     return out * has.unsqueeze(-1)
 
 
