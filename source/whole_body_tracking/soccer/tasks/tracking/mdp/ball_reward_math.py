@@ -46,3 +46,51 @@ def velocity_follow_reward(
     if shape == "gaussian":
         return torch.exp(-(err * err) / (std * std))
     raise ValueError(f"unknown shape {shape!r}")
+
+
+class CycleVelocityFollow:
+    """Cycle-averaged velocity follow (stateful, pure torch).
+
+    A *cycle* is one full contact-surface cycle of the contact clock (Reference 1: out-out-in-in = 4 touches,
+    Reference 2: in-out = 2).  Between two cycle boundaries the object accumulates the commanded world velocity
+    and, at the next boundary, compares
+
+        v_ball_avg = (ball_xy - ball_xy_at_cycle_start) / elapsed
+        v_cmd_avg  = (integral of commanded world velocity) / elapsed
+
+    returning ``exp(-|v_ball_avg - v_cmd_avg| / std)`` as a pulse on the boundary step (zero elsewhere).  Within a
+    full cycle the left/right (inside/outside) lateral swings cancel, which is why the single-interval version
+    topped out at ~0.45 and this one at 0.78-0.89 on the references.
+
+    The boundary mask comes from the reference contact clock, never from detected physical contact, so a missed
+    touch cannot suppress the signal.  The first boundary after ``reset`` only starts a cycle (no pulse).
+    """
+
+    def __init__(self, num_envs: int, device, std: float = 0.5):
+        self.std = float(std)
+        self.start_pos = torch.zeros(num_envs, 2, device=device)
+        self.cmd_sum = torch.zeros(num_envs, 2, device=device)
+        self.elapsed = torch.zeros(num_envs, device=device)
+        self.active = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self.last_score = torch.zeros(num_envs, device=device)
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        self.cmd_sum[env_ids] = 0.0
+        self.elapsed[env_ids] = 0.0
+        self.active[env_ids] = False
+        self.last_score[env_ids] = 0.0
+
+    def step(self, ball_xy_w: torch.Tensor, cmd_xy_w: torch.Tensor, boundary: torch.Tensor, dt: float) -> torch.Tensor:
+        self.cmd_sum += cmd_xy_w * dt * self.active.unsqueeze(-1)
+        self.elapsed += dt * self.active
+        emit = boundary & self.active & (self.elapsed > 1e-6)
+        t = self.elapsed.clamp(min=1e-6).unsqueeze(-1)
+        err = torch.linalg.vector_norm((ball_xy_w - self.start_pos) / t - self.cmd_sum / t, dim=-1)
+        score = torch.where(emit, torch.exp(-err / self.std), torch.zeros_like(err))
+        self.last_score = torch.where(emit, score, self.last_score)
+        restart = boundary
+        self.start_pos = torch.where(restart.unsqueeze(-1), ball_xy_w, self.start_pos)
+        self.cmd_sum = torch.where(restart.unsqueeze(-1), torch.zeros_like(self.cmd_sum), self.cmd_sum)
+        self.elapsed = torch.where(restart, torch.zeros_like(self.elapsed), self.elapsed)
+        self.active = self.active | restart
+        return score

@@ -5470,3 +5470,39 @@ def dribbling_ball_velocity_follow(
     ball_vel_local = _pelvis_yaw_local_vector(command, ball.data.root_lin_vel_w[:, :3])
     cmd = command.locomotion_twist_command_b().view(env.num_envs, -1)[:, :2]
     return velocity_follow_reward(ball_vel_local[:, :2], cmd, std, shape)
+
+
+def dribbling_cycle_velocity_follow(
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    cycle_length: int = 4,
+    std: float = 0.5,
+) -> torch.Tensor:
+    """Cycle-averaged ball-velocity-follow pulse (see ``ball_reward_math.CycleVelocityFollow``).
+
+    Boundaries: every ``cycle_length``-th reference contact event, from the offline contact clock.  The commanded
+    velocity is the Actor-visible local ``[vx, vy]`` rotated into the world by the robot's current pelvis yaw.
+    NOTE: the glue below (state attached to ``env``, reset detection via ``episode_length_buf``) has not been run
+    inside an Isaac environment; only the math in ``ball_reward_math`` is unit-tested.
+    """
+    from soccer.tasks.tracking.mdp.ball_reward_math import CycleVelocityFollow
+
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    state = getattr(env, "_cycle_velocity_follow", None)
+    if state is None or state.std != float(std):
+        state = CycleVelocityFollow(env.num_envs, env.device, std)
+        env._cycle_velocity_follow = state
+    fresh = (env.episode_length_buf <= 1).nonzero(as_tuple=False).flatten()
+    if fresh.numel():
+        state.reset(fresh)
+    ball = env.scene["soccer_ball"]
+    cmd_local = command.locomotion_twist_command_b().view(env.num_envs, -1)[:, :2]
+    cmd_w = quat_apply(yaw_quat(command.robot_anchor_quat_w), torch.nn.functional.pad(cmd_local, (0, 1)))[:, :2]
+    motion_idx = command.motion_idx.to(torch.long)
+    frame = command.time_steps.to(torch.long)
+    frames = command._s2_event_frames_padded[motion_idx]
+    count = command._s2_event_count_by_motion[motion_idx]
+    index = torch.arange(frames.shape[1], device=frames.device).unsqueeze(0)
+    is_boundary_event = (index % int(cycle_length) == 0) & (index < count.unsqueeze(-1))
+    boundary = ((frames == frame.unsqueeze(-1)) & is_boundary_event).any(dim=-1)
+    return state.step(ball.data.root_pos_w[:, :2], cmd_w, boundary, float(env.step_dt))
