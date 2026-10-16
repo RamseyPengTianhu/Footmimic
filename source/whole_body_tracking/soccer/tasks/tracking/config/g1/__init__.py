@@ -8,7 +8,7 @@ diagnostic fixtures; they are not formal checkpoint boundaries.
 
 import gymnasium as gym
 
-from . import agents, soccer_dribbling_env_cfg, soccer_flat_env_cfg
+from . import agents, latent_dribble_env_cfg, soccer_dribbling_env_cfg, soccer_flat_env_cfg
 
 
 def _register(env_id: str, env_cfg_entry_point, runner_cfg: str) -> None:
@@ -129,4 +129,12 @@ _register(
     "Tracking-Flat-G1-CleanV1-BallTrack-RNN",
     soccer_dribbling_env_cfg.G1CleanV1BallTrackEnvCfg,
     "G1CleanV1RecurrentPPORunnerCfg",
+)
+
+# Interface v1 (shared latent skill net).  D-a = Stage 1' smoke; the runner cfg is a placeholder until the latent
+# actor-critic wrapper exists (the env alone is used by scripts/dribble/check_latent_obs.py).
+_register(
+    "Tracking-Flat-G1-LatentDribble-Da",
+    latent_dribble_env_cfg.G1LatentDribbleDaEnvCfg,
+    "G1CleanV0Stage1RecurrentPPORunnerCfg",
 )
