@@ -173,7 +173,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env = RslRlVecEnvWrapper(env)
 
     # create runner from rsl-rl
-    runner = OnPolicyRunner(
+    runner_cls = OnPolicyRunner
+    if getattr(agent_cfg.algorithm, "class_name", "") == "LatentPPO":  # interface-v1 latent tasks
+        from soccer.utils.latent_runner import LatentOnPolicyRunner as runner_cls
+    runner = runner_cls(
         env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device, registry_name=None
     )
     # write git state to logs

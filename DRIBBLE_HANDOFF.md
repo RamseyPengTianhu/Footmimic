@@ -552,3 +552,12 @@ Reference 2 有 75% 的间隔一开始就在 0.25 m 内(直接判成"触球"),10
 - 验收 `scripts/dribble/test_latent_rl.py`(无 Isaac,合成数据,16 项全过):一次完整循环 PPO 迭代损失有限且含 KL;编码器、先验、跟踪器、critic、动作噪声都有梯度;
   先验模式能前向;state_dict 存取后输出完全一致;归一化缓冲区随 checkpoint 保存。Isaac 中 `check_latent_obs.py` 复查:policy 311、critic 292、两种模式前向、全部有限值。
 - 尚未验证:真实环境里的训练循环、runner 的 save/load(`MotionOnPolicyRunner` 自带热启动加载逻辑)——留到步骤 4 冒烟。
+
+
+### 17.5 D-a 冒烟:通过(2026-10-16)
+- 任务 `Tracking-Flat-G1-LatentDribble-Da`,48 个片段(两条盘带参考 + 站立 10 + 行走 36),幽灵球,控球标志恒 1,64 envs。
+- run `logs/rsl_rl/g1_dribbling/2026-10-16_19-17-06_da_smoke`(5 轮,存 `model_0.pt`、`model_4.pt`);恢复 run `2026-10-16_19-17-24_da_smoke_resume`
+  从 `model_4.pt` 读档,接着跑第 4→5 轮并存 `model_5.pt`,没有触发 `MotionOnPolicyRunner` 的热启动改写。
+- 维度对齐;训练日志记录 `latent_kl` 0.066–0.069;先验模式前向在单元测试与 Isaac 检查中验证;每轮约 1.4 s(64 envs)。
+- 为此加了 `soccer/utils/latent_runner.py::LatentOnPolicyRunner`:RSL-RL 只认算法名 `"PPO"`,该 runner 在构造期间临时把 runner 命名空间里的
+  `PPO` 指向 `LatentPPO`,构造完恢复;`scripts/rsl_rl/train_multi.py` 在 `algorithm.class_name == "LatentPPO"` 时选用它(一处 3 行改动)。
