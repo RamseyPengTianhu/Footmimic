@@ -561,3 +561,16 @@ Reference 2 有 75% 的间隔一开始就在 0.25 m 内(直接判成"触球"),10
 - 维度对齐;训练日志记录 `latent_kl` 0.066–0.069;先验模式前向在单元测试与 Isaac 检查中验证;每轮约 1.4 s(64 envs)。
 - 为此加了 `soccer/utils/latent_runner.py::LatentOnPolicyRunner`:RSL-RL 只认算法名 `"PPO"`,该 runner 在构造期间临时把 runner 命名空间里的
   `PPO` 指向 `LatentPPO`,构造完恢复;`scripts/rsl_rl/train_multi.py` 在 `algorithm.class_name == "LatentPPO"` 时选用它(一处 3 行改动)。
+
+
+### 17.6 D-b:Stage 1′ 正式训练(进行中,2026-10-16 用户同意启动)
+- 任务 `Tracking-Flat-G1-LatentDribble-Db` = D-a + **宽幽灵球**(`mdp/latent_ghost_ball.py`):复位时一半在原"身前"区域、一半在宽区域
+  (x −2.0…2.5 m、y ±2.0 m);三种运动模式各 1/3——随身体静止、**世界静止**(机器人走过它,球在骨盆系里往后退,即"球被甩在身后";
+  出界后重新放到身前)、随机相对速度 ≤2 m/s。Isaac 检查:球位置 x 1%–99% 分位 −1.8…2.4 m、21% 时间在身后,球速 25% 分位为 0。
+- 数据 `motions/latent_db_mix/`(符号链接,未提交):站立 10 + 行走 36 + 两条盘带参考各 12 份副本 → 70 个片段,盘带占 34%(D-a 只有 4%)。
+- 训练:2048 envs、6000 轮、每 500 轮存档,约 1.8 s/轮(约 3 小时)。run 名 `db_stage1prime_2048`。
+- **验收脚本** `scripts/dribble/eval_latent_tracking.py`:加载任一 checkpoint(潜变量任务或 clean-v0 Stage 1),后验或先验模式,确定性动作
+  (走 runner 的推理接口,含 RSL-RL 观测归一化),报告跟踪误差均值与各类终止。
+- **对照基线(clean-v0 Stage 1 `model_6999.pt`,Reference 1,64 envs × 600 步):64/64 走完整条 clip,失败 0。**
+  跟踪误差:身体位置 0.071 m、身体朝向 0.197 rad、关节位置 0.935、关节速度 7.80(全局锚点误差 4.0 m 不参与对比,clean-v0 不跟踪世界位置)。
+- D-b 门槛:(1) Reference 1 上上述跟踪误差不差于基线、失败率不高于基线;(2) 先验模式在站立、行走、盘带片段上能站、能走、能保持盘带步态(看失败率与误差)。
