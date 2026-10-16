@@ -33,6 +33,7 @@ parser.add_argument("--output", type=str, required=True)
 parser.add_argument("--noise_std", type=float, default=0.0, help="Gaussian noise added to policy actions (emulates exploration std)")
 parser.add_argument("--hold_ball_ahead", action="store_true", help="Causal test: teleport the ball to 0.5 m ahead of the pelvis every step (Stage-1 like ball observation)")
 parser.add_argument("--keep_ball_lost", action="store_true", help="Keep the ball_lost termination (evaluate under the task's normal terminations)")
+parser.add_argument("--cycle_reward_len", type=int, default=0, help="Attach dribbling_cycle_velocity_follow with this cycle length (touch events) and log its per-step value (smoke test of the env glue; adds to the reward, no learning here)")
 parser.add_argument("--max_steps", type=int, default=0, help="0 = clip length + 20")
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -80,6 +81,16 @@ def main(env_cfg, agent_cfg):
     if hasattr(env_cfg.curriculum, "s2_contact_levels"):
         env_cfg.curriculum.s2_contact_levels = None
 
+    if args_cli.cycle_reward_len > 0:
+        from isaaclab.managers import RewardTermCfg as RewTerm
+
+        from soccer.tasks.tracking import mdp as _mdp
+
+        env_cfg.rewards.cycle_velocity_follow = RewTerm(
+            func=_mdp.dribbling_cycle_velocity_follow, weight=1.0,
+            params={"command_name": "motion", "cycle_length": args_cli.cycle_reward_len},
+        )
+
     env = gym.make(args_cli.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
     log_root = os.path.abspath(os.path.join("logs", "rsl_rl", agent_cfg.experiment_name))
@@ -116,6 +127,7 @@ def main(env_cfg, agent_cfg):
     fell = torch.zeros(n, device=dev, dtype=torch.bool)
     last_frame = torch.zeros(n, device=dev, dtype=torch.long)
 
+    ts_cycle = []
     ts_frame, ts_ball_speed, ts_force, ts_dist_r, ts_alive, ts_ball_xy, ts_root_xy, ts_event = [], [], [], [], [], [], [], []
     done_reason = ["" for _ in range(n)]
     done_frame = torch.full((n,), -1, device=dev, dtype=torch.long)
@@ -169,6 +181,9 @@ def main(env_cfg, agent_cfg):
             if args_cli.noise_std > 0.0:
                 actions = actions + args_cli.noise_std * torch.randn_like(actions)
             obs, _, dones, _ = env.step(actions)
+        if args_cli.cycle_reward_len > 0:
+            rm = base.reward_manager
+            ts_cycle.append(rm._step_reward[:, rm.active_terms.index('cycle_velocity_follow')].clone())
         if args_cli.hold_ball_ahead:
           with torch.inference_mode():
             from isaaclab.utils.math import yaw_quat, quat_apply
@@ -208,6 +223,7 @@ def main(env_cfg, agent_cfg):
         window_starts=cmd._s2_event_window_starts_by_motion[0].cpu().numpy() if has_s2 else np.zeros(0),
         window_ends=cmd._s2_event_ends_by_motion[0].cpu().numpy() if has_s2 else np.zeros(0),
         clip_len=clip_len,
+        ts_cycle=torch.stack(ts_cycle).cpu().numpy() if ts_cycle else np.zeros(0),
         done_reason=np.array(done_reason), done_frame=done_frame.cpu().numpy(),
         ts_frame=torch.stack(ts_frame).cpu().numpy(), ts_alive=torch.stack(ts_alive).cpu().numpy(),
         ts_ball_speed=torch.stack(ts_ball_speed).cpu().numpy(), ts_force=torch.stack(ts_force).cpu().numpy(),
