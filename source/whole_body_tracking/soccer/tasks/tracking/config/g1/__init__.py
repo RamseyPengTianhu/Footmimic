@@ -8,7 +8,7 @@ diagnostic fixtures; they are not formal checkpoint boundaries.
 
 import gymnasium as gym
 
-from . import agents, latent_dribble_env_cfg, soccer_dribbling_env_cfg, soccer_flat_env_cfg
+from . import agents, ball_dribble_env_cfg, latent_dribble_env_cfg, soccer_dribbling_env_cfg, soccer_flat_env_cfg
 
 
 def _register(env_id: str, env_cfg_entry_point, runner_cfg: str) -> None:
@@ -145,5 +145,10 @@ _register(
 _register(
     "Tracking-Flat-G1-LatentDribble-Teacher",
     latent_dribble_env_cfg.G1LatentDribbleTeacherEnvCfg,
+    "G1CleanV0Stage1RecurrentPPORunnerCfg",
+)
+_register(
+    "Tracking-Flat-G1-BallDribble",
+    ball_dribble_env_cfg.G1BallDribbleEnvCfg,
     "G1CleanV0Stage1RecurrentPPORunnerCfg",
 )
