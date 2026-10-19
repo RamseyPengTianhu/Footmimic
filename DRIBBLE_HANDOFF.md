@@ -621,3 +621,12 @@ run `logs/rsl_rl/g1_dribbling/*_db_stage1prime_2048_freebits`(存档 0/500/1000)
   (2) 再用主线 A1 的蒸馏方法把老师蒸馏成潜变量学生(后验 + 先验 + KL),然后 Stage 2′ 从学生出发做 RL。
 - 需要主线提供:A1 的蒸馏脚本 `scripts/rsl_rl/train_latent_student_distill.py`(或其训练配方:损失、KL 权重与日程、DAgger 与否、数据量),
   以及确认这一改动符合主线计划。老师的训练(第 1 步)可以先开始,它与是否蒸馏无关,也是蒸馏的前提。
+
+
+### 17.9 老师训练(蒸馏路线第 1 步,进行中,2026-10-19 用户同意)
+- 任务 `Tracking-Flat-G1-LatentDribble-Teacher` = clean-v0 Stage 1 环境(参考关节在 160 维观测里、跟踪奖励、不碰球)+ D-b 同款宽幽灵球;
+  数据 `motions/latent_db_mix/`(70 个片段,盘带占 34%)。
+- 从 clean-v0 Stage 1 `model_6999.pt` 热启动(观测契约相同),2048 envs,再训 4000 轮(第 7000→10999 轮),每 500 轮存档。冒烟(3 轮)通过。
+- 自动评估:第 8000、9000 轮在 Reference 1、Reference 2、站立 10 条、行走 36 条上各跑一次(64 envs × 600 步,确定性),输出跟踪误差与失败率。
+- 老师的门槛(提议):Reference 1 跟踪不差于 clean-v0 Stage 1 基线(身体位置 0.071、关节 0.94、失败 0%);Reference 2、站立、行走的失败率低(< 10%)。
+- 蒸馏(第 2 步)仍需主线提供 A1 的蒸馏脚本或配方(接口需求 4)。

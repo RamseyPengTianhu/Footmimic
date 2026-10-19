@@ -96,3 +96,33 @@ class G1LatentDribbleDbEnvCfg(G1LatentDribbleDaEnvCfg):
             interval_range_s=(step_dt, step_dt),
             is_global_time=True,
         )
+
+
+def _add_wide_ghost_ball(cfg) -> None:
+    """Attach the wide-distribution ghost ball events (see ``mdp/latent_ghost_ball.py``)."""
+    from isaaclab.managers import EventTermCfg as EventTerm
+
+    from soccer.tasks.tracking.mdp import latent_ghost_ball
+
+    step_dt = cfg.sim.dt * cfg.decimation
+    cfg.events.latent_ghost_reset = EventTerm(func=latent_ghost_ball.ghost_ball_reset, mode="reset")
+    cfg.events.latent_ghost_step = EventTerm(
+        func=latent_ghost_ball.ghost_ball_step,
+        mode="interval",
+        interval_range_s=(step_dt, step_dt),
+        is_global_time=True,
+    )
+
+
+@configclass
+class G1LatentDribbleTeacherEnvCfg(G1CleanV0Stage1EnvCfg):
+    """Teacher for distilling the Stage-1' latent student (interface-request 4 in DRIBBLE_HANDOFF.md).
+
+    The clean-v0 Stage-1 tracker -- full reference joints in the 160-D actor observation, tracking rewards, no ball
+    interaction -- trained on the dribble + stand + walk mix with the same wide ghost ball as D-b.  Warm-started from
+    the clean-v0 Stage-1 checkpoint (identical observation contract).
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        _add_wide_ghost_ball(self)

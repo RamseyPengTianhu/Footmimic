@@ -142,3 +142,8 @@ _register(
     latent_dribble_env_cfg.G1LatentDribbleDbEnvCfg,
     "G1LatentDribbleDbRunnerCfg",
 )
+_register(
+    "Tracking-Flat-G1-LatentDribble-Teacher",
+    latent_dribble_env_cfg.G1LatentDribbleTeacherEnvCfg,
+    "G1CleanV0Stage1RecurrentPPORunnerCfg",
+)
