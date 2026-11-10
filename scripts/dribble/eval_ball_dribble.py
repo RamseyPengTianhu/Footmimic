@@ -29,6 +29,10 @@ parser.add_argument("--num_envs", type=int, default=64)
 parser.add_argument("--steps", type=int, default=800)
 parser.add_argument("--tol", type=int, default=2, help="frames added on each side of a labelled contact segment")
 parser.add_argument("--zero_action", action="store_true", help="hack check: hold the default pose, no policy")
+parser.add_argument("--ghost_ball", action="store_true",
+                    help="drift check: ball without collisions, ball-lost/non-foot terminations off (pure tracking)")
+parser.add_argument("--max_path_drift", type=float, default=None,
+                    help="override the path-drift termination threshold (m); 0 disables it")
 parser.add_argument("--output", required=True)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -44,10 +48,10 @@ from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import soccer.tasks  # noqa: E402,F401
-from soccer.tasks.tracking.mdp import ball_contact  # noqa: E402
+from soccer.tasks.tracking.mdp import ball_contact, path_drift  # noqa: E402
 from soccer.utils.my_on_policy_runner import MotionOnPolicyRunner  # noqa: E402
 
-FALL_TERMS = ("anchor_pos_z", "anchor_ori", "ee_body_pos")
+FALL_TERMS = ("anchor_pos_z", "anchor_ori", "ee_body_pos")  # path_drift is reported separately
 FINISH_TERMS = ("time_out", "motion_clip_end")
 
 
@@ -65,11 +69,39 @@ def contact_segments(contact: torch.Tensor):
     return segs
 
 
+def _pct(values):
+    if not values:
+        return None
+    t = torch.tensor(values)
+    return {"mean": float(t.mean()), "p50": float(t.quantile(0.5)), "p95": float(t.quantile(0.95)), "max": float(t.max())}
+
+
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
 def main(env_cfg, agent_cfg):
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.commands.motion.motion_files = [args_cli.motion_path]
+    if args_cli.ghost_ball:
+        import isaaclab.sim as sim_utils
+
+        env_cfg.scene.soccer_ball.spawn = env_cfg.scene.soccer_ball.spawn.replace(
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True, disable_gravity=True),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+        )
+        env_cfg.terminations.ball_lost = None
+        env_cfg.terminations.nonfoot_ball_contact = None
+    if args_cli.max_path_drift is not None:
+        drift_term = getattr(env_cfg.terminations, "path_drift", None)
+        if args_cli.max_path_drift <= 0:
+            env_cfg.terminations.path_drift = None
+        elif drift_term is not None:
+            drift_term.params["max_distance"] = args_cli.max_path_drift
+        else:
+            from isaaclab.managers import TerminationTermCfg as DoneTerm
+            from soccer.tasks.tracking.mdp import path_drift as _pd
+
+            env_cfg.terminations.path_drift = DoneTerm(func=_pd.path_drift_termination,
+                                                       params={"max_distance": args_cli.max_path_drift})
     env = RslRlVecEnvWrapper(gym.make(args_cli.task, cfg=env_cfg))
     base = env.unwrapped
     dev = base.device
@@ -111,6 +143,9 @@ def main(env_cfg, agent_cfg):
     ball_start = torch.zeros(N, 2, device=dev)
     link_steps = torch.zeros(len(ball_contact.BALL_FILTER_BODY_NAMES), device=dev)
     ball_last = torch.zeros(N, 2, device=dev)
+    drift_max = torch.zeros(N, device=dev)
+    drift_at = collections.defaultdict(list)  # frame -> drifts (alive envs), for the drift-vs-time profile
+    ep_drift_max = []
     obs, _ = env.get_observations()
     with torch.inference_mode():
         if policy is not None:
@@ -126,6 +161,12 @@ def main(env_cfg, agent_cfg):
             fresh = alive_steps == 0
             ball_start[fresh] = ball_xy[fresh]
             ball_last[:] = ball_xy
+            drift = path_drift.path_drift(base)
+            drift_max = torch.maximum(drift_max, drift)
+            for fr in (50, 100, 150, 200, 250, 300, 329):
+                sel = frame == fr
+                if sel.any():
+                    drift_at[fr] += drift[sel].tolist()
             alive_steps += 1.0
             obs, _, dones, _ = env.step(act(obs))
             if policy is not None:
@@ -153,6 +194,8 @@ def main(env_cfg, agent_cfg):
                 ep["alive_steps"] += float(alive_steps[ids].sum())
                 ep["wrong_foot_steps"] += int(wrong_foot[ids].sum())
                 ep["ball_travel"] += float((ball_last[ids] - ball_start[ids]).norm(dim=-1).sum())
+                ep_drift_max += drift_max[ids].tolist()
+                drift_max[ids] = 0.0
                 per_event_hits += hit[ids].float().sum(dim=0)
                 hit[ids] = False
                 zone_steps[ids] = 0.0
@@ -174,13 +217,16 @@ def main(env_cfg, agent_cfg):
         "wrong_foot_steps_per_episode": ep["wrong_foot_steps"] / n_ep,
         "mean_episode_steps": ep["alive_steps"] / n_ep,
         "ball_travel_m": ep["ball_travel"] / n_ep,
+        "path_drift_max_per_episode": _pct(ep_drift_max),
+        "path_drift_at_frame": {fr: _pct(v) for fr, v in sorted(drift_at.items())},
         "ball_contact_steps_by_link": {n: int(c) for n, c in zip(ball_contact.BALL_FILTER_BODY_NAMES, link_steps.tolist()) if c > 0},
         "reward_per_step": {name: float(rew_sum[i] / max(rew_n, 1)) for i, name in enumerate(rm.active_terms)},
     }
     out["reward_per_step_total"] = sum(out["reward_per_step"].values())
     json.dump(out, open(args_cli.output, "w"), indent=1)
     print("[BALL]", json.dumps({k: (round(v, 3) if isinstance(v, float) else v) for k, v in out.items()
-                                if k not in ("reward_per_step", "touch_completion_per_event")}))
+                                if k not in ("reward_per_step", "touch_completion_per_event", "path_drift_at_frame")}))
+    print("[BALL] drift by frame", {fr: round(v["p95"], 3) for fr, v in out["path_drift_at_frame"].items()})
     print("[BALL] per-event", [round(x, 2) for x in out["touch_completion_per_event"]])
     print("[BALL] reward/step", {k: round(v, 3) for k, v in out["reward_per_step"].items()})
     sys.stdout.flush()

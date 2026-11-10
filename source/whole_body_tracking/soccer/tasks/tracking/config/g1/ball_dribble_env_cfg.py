@@ -49,6 +49,7 @@ class G1BallDribbleEnvCfg(G1CleanV0Stage1EnvCfg):
         )
         # Per-link ball contact forces (feet first; see mdp/ball_contact.py).
         self.scene.soccer_ball_contact.filter_prim_paths_expr = ball_contact.ball_filter_prim_paths()
+        self.scene.soccer_ball_contact.history_length = self.decimation  # every physics substep of a control step
 
         # Ball at the reference first contact; episode from frame 0.
         motion = self.commands.motion
