@@ -1,0 +1,25 @@
+{
+ "rule": "A sensor event (any link force > 1 N, rising edge) is matched to a ball speed jump (|dv| > 0.3 m/s in one control",
+ "result": {
+  "teacher_ref1_real.npz": {
+   "matched": 195,
+   "sensor_only": 67,
+   "velocity_jump_only": 21
+  },
+  "s1_ref1_real.npz": {
+   "matched": 100,
+   "sensor_only": 31,
+   "velocity_jump_only": 11
+  },
+  "teacher_ref1_real_no_resist.npz": {
+   "matched": 199,
+   "sensor_only": 56,
+   "velocity_jump_only": 18
+  },
+  "teacher_ref2_real.npz": {
+   "matched": 76,
+   "sensor_only": 2,
+   "velocity_jump_only": 13
+  }
+ }
+}

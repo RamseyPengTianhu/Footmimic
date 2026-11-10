@@ -1,0 +1,1749 @@
+{
+ "file": "logs/dribble_status_20261110/raw/s1_ref1_real.npz",
+ "meta": {
+  "condition": "real",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "motion_path": "motions/master-aligned/master_001675_001884_unitree_g1.npz",
+  "num_envs": 128,
+  "steps": 336,
+  "clip_len": 331,
+  "fps": 50.0,
+  "step_dt": 0.02,
+  "contact_threshold_N": 1.0,
+  "hold_offset_pelvis_yaw": [
+   0.5,
+   -0.15,
+   0.0
+  ]
+ },
+ "reach_xy_m": 0.3,
+ "category_counts": {
+  "C_first_touch_ball_out_of_reach": 5,
+  "B_first_touch_missed": 11,
+  "A_nonfoot_contact_first": 2,
+  "E_second_touch_connected": 1,
+  "D_ball_reachable_but_second_touch_missed": 1
+ },
+ "fall_cause_counts": {
+  "ball_out_of_reach": 20
+ },
+ "episodes": [
+  {
+   "env": 0,
+   "duration_s": 4.0200000000000005,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 1,
+   "consecutive_touches": 1,
+   "nonfoot_touches": 1,
+   "nonfoot_links": [
+    "right_knee_link"
+   ],
+   "labelled_hits": 0,
+   "ball_lost_step": 80,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": 29,
+   "first_nonfoot_link": "right_knee_link",
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 29,
+    "ref_frame": 30,
+    "nearest_labelled_index": 0,
+    "frame_diff": -5,
+    "ball_speed_after": 2.213,
+    "ball_dir_after_deg_pelvis": -57.1,
+    "ref_ball_speed_after": 1.115,
+    "ref_ball_dir_after_deg_pelvis": -57.8
+   },
+   "first_touch": {
+    "step": 29,
+    "ref_frame": 30,
+    "nearest_labelled_onset": 35,
+    "frame_diff": -5,
+    "nearest_labelled_index": 0,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-front",
+    "ball_in_ankle_yaw_frame_cm": [
+     16.3,
+     -11.2,
+     0.8
+    ],
+    "force_down_fraction": -0.5,
+    "ball_speed_after": 2.213,
+    "ball_dir_after_deg_pelvis": -57.1,
+    "ref_ball_speed_after": 1.115,
+    "ref_ball_dir_after_deg_pelvis": -57.8
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     0.152,
+     -0.191
+    ],
+    [
+     0.1,
+     0.177,
+     -0.304
+    ],
+    [
+     0.2,
+     0.204,
+     -0.376
+    ],
+    [
+     0.3,
+     0.273,
+     -0.453
+    ],
+    [
+     0.4,
+     0.267,
+     -0.524
+    ],
+    [
+     0.5,
+     0.231,
+     -0.572
+    ]
+   ],
+   "next_labelled": {
+    "index": 1,
+    "frame": 47,
+    "step": 46,
+    "ball_to_labelled_ankle_xy_m": 0.427,
+    "ball_rel_pelvis_m": [
+     0.286,
+     -0.48
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 29,
+     "ref_frame": 30,
+     "nearest_labelled_onset": 35,
+     "frame_diff": -5,
+     "nearest_labelled_index": 0,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-front",
+     "ball_in_ankle_yaw_frame_cm": [
+      16.3,
+      -11.2,
+      0.8
+     ],
+     "force_down_fraction": -0.5,
+     "ball_speed_after": 2.213,
+     "ball_dir_after_deg_pelvis": -57.1,
+     "ref_ball_speed_after": 1.115,
+     "ref_ball_dir_after_deg_pelvis": -57.8
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.217,
+    "ball_rel_pelvis_m": [
+     0.177,
+     -0.304
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 200,
+    "ref_frame": 201,
+    "labelled_onsets_before": 9,
+    "foot_touches_before": 1,
+    "ball_pelvis_dist_m": 3.735,
+    "pelvis_speed_err_mps": 0.146,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "C_first_touch_ball_out_of_reach",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 1,
+   "duration_s": 2.38,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 91,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.174,
+    "ball_rel_pelvis_m": [
+     0.025,
+     -0.25
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 118,
+    "ref_frame": 119,
+    "labelled_onsets_before": 5,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.173,
+    "pelvis_speed_err_mps": 1.223,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 2,
+   "duration_s": 2.6,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 95,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.218,
+    "ball_rel_pelvis_m": [
+     0.086,
+     -0.31
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 129,
+    "ref_frame": 130,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.194,
+    "pelvis_speed_err_mps": 1.009,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 3,
+   "duration_s": 4.12,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 2,
+   "consecutive_touches": 2,
+   "nonfoot_touches": 2,
+   "nonfoot_links": [
+    "right_knee_link",
+    "right_knee_link"
+   ],
+   "labelled_hits": 1,
+   "ball_lost_step": 99,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": 32,
+   "first_nonfoot_link": "right_knee_link",
+   "first_contact_any": {
+    "link": "right_knee_link",
+    "step": 32,
+    "ref_frame": 33,
+    "nearest_labelled_index": 0,
+    "frame_diff": -2,
+    "ball_speed_after": 0.61,
+    "ball_dir_after_deg_pelvis": -14.4,
+    "ref_ball_speed_after": 1.115,
+    "ref_ball_dir_after_deg_pelvis": -57.8
+   },
+   "first_touch": {
+    "step": 48,
+    "ref_frame": 49,
+    "nearest_labelled_onset": 47,
+    "frame_diff": 2,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-mid",
+    "ball_in_ankle_yaw_frame_cm": [
+     0.9,
+     -13.3,
+     0.6
+    ],
+    "force_down_fraction": -0.35,
+    "ball_speed_after": 1.003,
+    "ball_dir_after_deg_pelvis": -68.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     0.102,
+     -0.189
+    ],
+    [
+     0.1,
+     0.03,
+     -0.14
+    ],
+    [
+     0.2,
+     -0.031,
+     -0.046
+    ],
+    [
+     0.3,
+     -0.066,
+     -0.15
+    ],
+    [
+     0.4,
+     -0.159,
+     -0.252
+    ],
+    [
+     0.5,
+     -0.271,
+     -0.272
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.203,
+    "ball_rel_pelvis_m": [
+     -0.115,
+     -0.22
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 48,
+     "ref_frame": 49,
+     "nearest_labelled_onset": 47,
+     "frame_diff": 2,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-mid",
+     "ball_in_ankle_yaw_frame_cm": [
+      0.9,
+      -13.3,
+      0.6
+     ],
+     "force_down_fraction": -0.35,
+     "ball_speed_after": 1.003,
+     "ball_dir_after_deg_pelvis": -68.3,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    },
+    {
+     "step": 58,
+     "ref_frame": 59,
+     "nearest_labelled_onset": 67,
+     "frame_diff": -8,
+     "nearest_labelled_index": 2,
+     "labelled_foot": "right",
+     "labelled_surface": "inside",
+     "foot": "left",
+     "region": "inside-mid",
+     "ball_in_ankle_yaw_frame_cm": [
+      0.7,
+      -15.5,
+      2.1
+     ],
+     "force_down_fraction": -0.39,
+     "ball_speed_after": 1.596,
+     "ball_dir_after_deg_pelvis": -81.5,
+     "ref_ball_speed_after": 0.981,
+     "ref_ball_dir_after_deg_pelvis": 31.0
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.174,
+    "ball_rel_pelvis_m": [
+     0.105,
+     -0.247
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 205,
+    "ref_frame": 206,
+    "labelled_onsets_before": 10,
+    "foot_touches_before": 2,
+    "ball_pelvis_dist_m": 3.57,
+    "pelvis_speed_err_mps": 0.446,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "A_nonfoot_contact_first",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 4,
+   "duration_s": 2.6,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 1,
+   "consecutive_touches": 1,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 1,
+   "ball_lost_step": 94,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 46,
+    "ref_frame": 47,
+    "nearest_labelled_index": 1,
+    "frame_diff": 0,
+    "ball_speed_after": 0.876,
+    "ball_dir_after_deg_pelvis": -76.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "first_touch": {
+    "step": 46,
+    "ref_frame": 47,
+    "nearest_labelled_onset": 47,
+    "frame_diff": 0,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-back",
+    "ball_in_ankle_yaw_frame_cm": [
+     -7.8,
+     -11.5,
+     3.3
+    ],
+    "force_down_fraction": -0.48,
+    "ball_speed_after": 0.876,
+    "ball_dir_after_deg_pelvis": -76.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     -0.014,
+     -0.194
+    ],
+    [
+     0.1,
+     -0.111,
+     -0.203
+    ],
+    [
+     0.2,
+     -0.204,
+     -0.182
+    ],
+    [
+     0.3,
+     -0.277,
+     -0.208
+    ],
+    [
+     0.4,
+     -0.389,
+     -0.201
+    ],
+    [
+     0.5,
+     -0.518,
+     -0.122
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.371,
+    "ball_rel_pelvis_m": [
+     -0.389,
+     -0.201
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 46,
+     "ref_frame": 47,
+     "nearest_labelled_onset": 47,
+     "frame_diff": 0,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-back",
+     "ball_in_ankle_yaw_frame_cm": [
+      -7.8,
+      -11.5,
+      3.3
+     ],
+     "force_down_fraction": -0.48,
+     "ball_speed_after": 0.876,
+     "ball_dir_after_deg_pelvis": -76.3,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.192,
+    "ball_rel_pelvis_m": [
+     0.093,
+     -0.297
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 129,
+    "ref_frame": 130,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 1,
+    "ball_pelvis_dist_m": 2.332,
+    "pelvis_speed_err_mps": 0.968,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "C_first_touch_ball_out_of_reach",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 5,
+   "duration_s": 2.48,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 1,
+   "consecutive_touches": 1,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 1,
+   "ball_lost_step": 93,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 45,
+    "ref_frame": 46,
+    "nearest_labelled_index": 1,
+    "frame_diff": -1,
+    "ball_speed_after": 0.623,
+    "ball_dir_after_deg_pelvis": -87.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "first_touch": {
+    "step": 45,
+    "ref_frame": 46,
+    "nearest_labelled_onset": 47,
+    "frame_diff": -1,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-back",
+    "ball_in_ankle_yaw_frame_cm": [
+     -6.2,
+     -13.5,
+     3.2
+    ],
+    "force_down_fraction": -0.43,
+    "ball_speed_after": 0.623,
+    "ball_dir_after_deg_pelvis": -87.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     -0.022,
+     -0.206
+    ],
+    [
+     0.1,
+     -0.115,
+     -0.188
+    ],
+    [
+     0.2,
+     -0.224,
+     -0.143
+    ],
+    [
+     0.3,
+     -0.299,
+     -0.162
+    ],
+    [
+     0.4,
+     -0.405,
+     -0.153
+    ],
+    [
+     0.5,
+     -0.527,
+     -0.075
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.405,
+    "ball_rel_pelvis_m": [
+     -0.43,
+     -0.144
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 45,
+     "ref_frame": 46,
+     "nearest_labelled_onset": 47,
+     "frame_diff": -1,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-back",
+     "ball_in_ankle_yaw_frame_cm": [
+      -6.2,
+      -13.5,
+      3.2
+     ],
+     "force_down_fraction": -0.43,
+     "ball_speed_after": 0.623,
+     "ball_dir_after_deg_pelvis": -87.3,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.189,
+    "ball_rel_pelvis_m": [
+     0.082,
+     -0.291
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 123,
+    "ref_frame": 124,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 1,
+    "ball_pelvis_dist_m": 2.168,
+    "pelvis_speed_err_mps": 0.833,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "C_first_touch_ball_out_of_reach",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 6,
+   "duration_s": 2.62,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 95,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.176,
+    "ball_rel_pelvis_m": [
+     0.019,
+     -0.283
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 130,
+    "ref_frame": 131,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.234,
+    "pelvis_speed_err_mps": 1.082,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 7,
+   "duration_s": 2.84,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 93,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.223,
+    "ball_rel_pelvis_m": [
+     0.045,
+     -0.327
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 141,
+    "ref_frame": 142,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.527,
+    "pelvis_speed_err_mps": 0.674,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 8,
+   "duration_s": 2.58,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 97,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.188,
+    "ball_rel_pelvis_m": [
+     0.058,
+     -0.27
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 128,
+    "ref_frame": 129,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.208,
+    "pelvis_speed_err_mps": 1.426,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 9,
+   "duration_s": 2.34,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 1,
+   "consecutive_touches": 1,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 1,
+   "ball_lost_step": 87,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 47,
+    "ref_frame": 48,
+    "nearest_labelled_index": 1,
+    "frame_diff": 1,
+    "ball_speed_after": 0.991,
+    "ball_dir_after_deg_pelvis": -86.2,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "first_touch": {
+    "step": 47,
+    "ref_frame": 48,
+    "nearest_labelled_onset": 47,
+    "frame_diff": 1,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-back",
+    "ball_in_ankle_yaw_frame_cm": [
+     -10.1,
+     -11.3,
+     2.9
+    ],
+    "force_down_fraction": -0.42,
+    "ball_speed_after": 0.991,
+    "ball_dir_after_deg_pelvis": -86.2,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     -0.042,
+     -0.209
+    ],
+    [
+     0.1,
+     -0.156,
+     -0.218
+    ],
+    [
+     0.2,
+     -0.252,
+     -0.223
+    ],
+    [
+     0.3,
+     -0.339,
+     -0.285
+    ],
+    [
+     0.4,
+     -0.478,
+     -0.277
+    ],
+    [
+     0.5,
+     -0.635,
+     -0.195
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.387,
+    "ball_rel_pelvis_m": [
+     -0.45,
+     -0.281
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 47,
+     "ref_frame": 48,
+     "nearest_labelled_onset": 47,
+     "frame_diff": 1,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-back",
+     "ball_in_ankle_yaw_frame_cm": [
+      -10.1,
+      -11.3,
+      2.9
+     ],
+     "force_down_fraction": -0.42,
+     "ball_speed_after": 0.991,
+     "ball_dir_after_deg_pelvis": -86.2,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.219,
+    "ball_rel_pelvis_m": [
+     0.084,
+     -0.302
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 116,
+    "ref_frame": 117,
+    "labelled_onsets_before": 5,
+    "foot_touches_before": 1,
+    "ball_pelvis_dist_m": 2.424,
+    "pelvis_speed_err_mps": 1.866,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "C_first_touch_ball_out_of_reach",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 10,
+   "duration_s": 2.88,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 96,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.237,
+    "ball_rel_pelvis_m": [
+     0.067,
+     -0.318
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 143,
+    "ref_frame": 144,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.601,
+    "pelvis_speed_err_mps": 0.468,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 11,
+   "duration_s": 2.8000000000000003,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 96,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.205,
+    "ball_rel_pelvis_m": [
+     0.056,
+     -0.287
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 139,
+    "ref_frame": 140,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.605,
+    "pelvis_speed_err_mps": 0.466,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 12,
+   "duration_s": 2.64,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 94,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.238,
+    "ball_rel_pelvis_m": [
+     0.011,
+     -0.316
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 131,
+    "ref_frame": 132,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.298,
+    "pelvis_speed_err_mps": 0.978,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 13,
+   "duration_s": 2.94,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 2,
+   "consecutive_touches": 2,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 1,
+   "ball_lost_step": 89,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 31,
+    "ref_frame": 32,
+    "nearest_labelled_index": 0,
+    "frame_diff": -3,
+    "ball_speed_after": 1.027,
+    "ball_dir_after_deg_pelvis": -59.3,
+    "ref_ball_speed_after": 1.115,
+    "ref_ball_dir_after_deg_pelvis": -57.8
+   },
+   "first_touch": {
+    "step": 31,
+    "ref_frame": 32,
+    "nearest_labelled_onset": 35,
+    "frame_diff": -3,
+    "nearest_labelled_index": 0,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-front",
+    "ball_in_ankle_yaw_frame_cm": [
+     12.4,
+     -12.9,
+     1.2
+    ],
+    "force_down_fraction": -0.38,
+    "ball_speed_after": 1.027,
+    "ball_dir_after_deg_pelvis": -59.3,
+    "ref_ball_speed_after": 1.115,
+    "ref_ball_dir_after_deg_pelvis": -57.8
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     0.153,
+     -0.253
+    ],
+    [
+     0.1,
+     0.105,
+     -0.274
+    ],
+    [
+     0.2,
+     0.084,
+     -0.285
+    ],
+    [
+     0.3,
+     0.072,
+     -0.296
+    ],
+    [
+     0.4,
+     -0.024,
+     -0.302
+    ],
+    [
+     0.5,
+     -0.115,
+     -0.329
+    ]
+   ],
+   "next_labelled": {
+    "index": 1,
+    "frame": 47,
+    "step": 46,
+    "ball_to_labelled_ankle_xy_m": 0.199,
+    "ball_rel_pelvis_m": [
+     0.072,
+     -0.296
+    ],
+    "hit": true
+   },
+   "touches": [
+    {
+     "step": 31,
+     "ref_frame": 32,
+     "nearest_labelled_onset": 35,
+     "frame_diff": -3,
+     "nearest_labelled_index": 0,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-front",
+     "ball_in_ankle_yaw_frame_cm": [
+      12.4,
+      -12.9,
+      1.2
+     ],
+     "force_down_fraction": -0.38,
+     "ball_speed_after": 1.027,
+     "ball_dir_after_deg_pelvis": -59.3,
+     "ref_ball_speed_after": 1.115,
+     "ref_ball_dir_after_deg_pelvis": -57.8
+    },
+    {
+     "step": 49,
+     "ref_frame": 50,
+     "nearest_labelled_onset": 47,
+     "frame_diff": 3,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-mid",
+     "ball_in_ankle_yaw_frame_cm": [
+      -1.1,
+      -13.0,
+      3.1
+     ],
+     "force_down_fraction": -0.47,
+     "ball_speed_after": 1.335,
+     "ball_dir_after_deg_pelvis": -95.1,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.172,
+    "ball_rel_pelvis_m": [
+     0.127,
+     -0.277
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 146,
+    "ref_frame": 147,
+    "labelled_onsets_before": 7,
+    "foot_touches_before": 2,
+    "ball_pelvis_dist_m": 2.775,
+    "pelvis_speed_err_mps": 0.784,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "E_second_touch_connected",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 14,
+   "duration_s": 2.7600000000000002,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 94,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.248,
+    "ball_rel_pelvis_m": [
+     0.059,
+     -0.329
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 137,
+    "ref_frame": 138,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.677,
+    "pelvis_speed_err_mps": 0.859,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 15,
+   "duration_s": 2.96,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 92,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.22,
+    "ball_rel_pelvis_m": [
+     0.042,
+     -0.315
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 147,
+    "ref_frame": 148,
+    "labelled_onsets_before": 7,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.642,
+    "pelvis_speed_err_mps": 0.746,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 16,
+   "duration_s": 2.8000000000000003,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 0,
+   "consecutive_touches": 0,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 0,
+   "ball_lost_step": 98,
+   "labelled_hit_mask": "0000000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": null,
+   "first_touch": null,
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.192,
+    "ball_rel_pelvis_m": [
+     0.054,
+     -0.289
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 139,
+    "ref_frame": 140,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 0,
+    "ball_pelvis_dist_m": 2.512,
+    "pelvis_speed_err_mps": 0.763,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "B_first_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 17,
+   "duration_s": 2.64,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 1,
+   "consecutive_touches": 1,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 1,
+   "ball_lost_step": 89,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 46,
+    "ref_frame": 47,
+    "nearest_labelled_index": 1,
+    "frame_diff": 0,
+    "ball_speed_after": 1.201,
+    "ball_dir_after_deg_pelvis": -66.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "first_touch": {
+    "step": 46,
+    "ref_frame": 47,
+    "nearest_labelled_onset": 47,
+    "frame_diff": 0,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-mid",
+    "ball_in_ankle_yaw_frame_cm": [
+     -0.7,
+     -12.9,
+     2.3
+    ],
+    "force_down_fraction": -0.38,
+    "ball_speed_after": 1.201,
+    "ball_dir_after_deg_pelvis": -66.3,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     0.019,
+     -0.252
+    ],
+    [
+     0.1,
+     -0.047,
+     -0.297
+    ],
+    [
+     0.2,
+     -0.131,
+     -0.307
+    ],
+    [
+     0.3,
+     -0.193,
+     -0.378
+    ],
+    [
+     0.4,
+     -0.318,
+     -0.405
+    ],
+    [
+     0.5,
+     -0.483,
+     -0.355
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.295,
+    "ball_rel_pelvis_m": [
+     -0.318,
+     -0.405
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 46,
+     "ref_frame": 47,
+     "nearest_labelled_onset": 47,
+     "frame_diff": 0,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-mid",
+     "ball_in_ankle_yaw_frame_cm": [
+      -0.7,
+      -12.9,
+      2.3
+     ],
+     "force_down_fraction": -0.38,
+     "ball_speed_after": 1.201,
+     "ball_dir_after_deg_pelvis": -66.3,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.204,
+    "ball_rel_pelvis_m": [
+     0.139,
+     -0.324
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 131,
+    "ref_frame": 132,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 1,
+    "ball_pelvis_dist_m": 2.433,
+    "pelvis_speed_err_mps": 1.032,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "D_ball_reachable_but_second_touch_missed",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 18,
+   "duration_s": 3.18,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 2,
+   "consecutive_touches": 2,
+   "nonfoot_touches": 2,
+   "nonfoot_links": [
+    "right_knee_link",
+    "right_knee_link"
+   ],
+   "labelled_hits": 1,
+   "ball_lost_step": 99,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": 43,
+   "first_nonfoot_link": "right_knee_link",
+   "first_contact_any": {
+    "link": "right_knee_link",
+    "step": 43,
+    "ref_frame": 44,
+    "nearest_labelled_index": 1,
+    "frame_diff": -3,
+    "ball_speed_after": 1.179,
+    "ball_dir_after_deg_pelvis": -82.7,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "first_touch": {
+    "step": 47,
+    "ref_frame": 48,
+    "nearest_labelled_onset": 47,
+    "frame_diff": 1,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-mid",
+    "ball_in_ankle_yaw_frame_cm": [
+     1.5,
+     -13.0,
+     1.2
+    ],
+    "force_down_fraction": -0.36,
+    "ball_speed_after": 1.179,
+    "ball_dir_after_deg_pelvis": -82.7,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     0.079,
+     -0.231
+    ],
+    [
+     0.1,
+     0.009,
+     -0.253
+    ],
+    [
+     0.2,
+     -0.041,
+     -0.186
+    ],
+    [
+     0.3,
+     -0.115,
+     -0.202
+    ],
+    [
+     0.4,
+     -0.235,
+     -0.225
+    ],
+    [
+     0.5,
+     -0.37,
+     -0.169
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.224,
+    "ball_rel_pelvis_m": [
+     -0.208,
+     -0.226
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 47,
+     "ref_frame": 48,
+     "nearest_labelled_onset": 47,
+     "frame_diff": 1,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-mid",
+     "ball_in_ankle_yaw_frame_cm": [
+      1.5,
+      -13.0,
+      1.2
+     ],
+     "force_down_fraction": -0.36,
+     "ball_speed_after": 1.179,
+     "ball_dir_after_deg_pelvis": -82.7,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    },
+    {
+     "step": 60,
+     "ref_frame": 61,
+     "nearest_labelled_onset": 67,
+     "frame_diff": -6,
+     "nearest_labelled_index": 2,
+     "labelled_foot": "right",
+     "labelled_surface": "inside",
+     "foot": "right",
+     "region": "outside-back",
+     "ball_in_ankle_yaw_frame_cm": [
+      -9.7,
+      -10.5,
+      5.1
+     ],
+     "force_down_fraction": -0.54,
+     "ball_speed_after": 0.711,
+     "ball_dir_after_deg_pelvis": -96.1,
+     "ref_ball_speed_after": 0.981,
+     "ref_ball_dir_after_deg_pelvis": 31.0
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.22,
+    "ball_rel_pelvis_m": [
+     0.161,
+     -0.294
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 158,
+    "ref_frame": 159,
+    "labelled_onsets_before": 7,
+    "foot_touches_before": 2,
+    "ball_pelvis_dist_m": 2.666,
+    "pelvis_speed_err_mps": 1.183,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "A_nonfoot_contact_first",
+   "ended_by_fall_or_tracking": true
+  },
+  {
+   "env": 19,
+   "duration_s": 2.46,
+   "end_reason": "ee_body_pos",
+   "foot_touches": 1,
+   "consecutive_touches": 1,
+   "nonfoot_touches": 0,
+   "nonfoot_links": [],
+   "labelled_hits": 1,
+   "ball_lost_step": 82,
+   "labelled_hit_mask": "0100000000000000",
+   "first_nonfoot_step": null,
+   "first_nonfoot_link": null,
+   "first_contact_any": {
+    "link": "foot_right",
+    "step": 45,
+    "ref_frame": 46,
+    "nearest_labelled_index": 1,
+    "frame_diff": -1,
+    "ball_speed_after": 1.383,
+    "ball_dir_after_deg_pelvis": -82.8,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "first_touch": {
+    "step": 45,
+    "ref_frame": 46,
+    "nearest_labelled_onset": 47,
+    "frame_diff": -1,
+    "nearest_labelled_index": 1,
+    "labelled_foot": "right",
+    "labelled_surface": "outside",
+    "foot": "right",
+    "region": "outside-mid",
+    "ball_in_ankle_yaw_frame_cm": [
+     -2.8,
+     -12.9,
+     2.4
+    ],
+    "force_down_fraction": -0.38,
+    "ball_speed_after": 1.383,
+    "ball_dir_after_deg_pelvis": -82.8,
+    "ref_ball_speed_after": 1.038,
+    "ref_ball_dir_after_deg_pelvis": 2.5
+   },
+   "ball_rel_pelvis_0p5s": [
+    [
+     0.0,
+     -0.013,
+     -0.196
+    ],
+    [
+     0.1,
+     -0.083,
+     -0.256
+    ],
+    [
+     0.2,
+     -0.181,
+     -0.267
+    ],
+    [
+     0.3,
+     -0.287,
+     -0.33
+    ],
+    [
+     0.4,
+     -0.447,
+     -0.37
+    ],
+    [
+     0.5,
+     -0.646,
+     -0.282
+    ]
+   ],
+   "next_labelled": {
+    "index": 2,
+    "frame": 67,
+    "step": 66,
+    "ball_to_labelled_ankle_xy_m": 0.419,
+    "ball_rel_pelvis_m": [
+     -0.486,
+     -0.362
+    ],
+    "hit": false
+   },
+   "touches": [
+    {
+     "step": 45,
+     "ref_frame": 46,
+     "nearest_labelled_onset": 47,
+     "frame_diff": -1,
+     "nearest_labelled_index": 1,
+     "labelled_foot": "right",
+     "labelled_surface": "outside",
+     "foot": "right",
+     "region": "outside-mid",
+     "ball_in_ankle_yaw_frame_cm": [
+      -2.8,
+      -12.9,
+      2.4
+     ],
+     "force_down_fraction": -0.38,
+     "ball_speed_after": 1.383,
+     "ball_dir_after_deg_pelvis": -82.8,
+     "ref_ball_speed_after": 1.038,
+     "ref_ball_dir_after_deg_pelvis": 2.5
+    }
+   ],
+   "chain_break": {
+    "index": 0,
+    "frame": 35,
+    "step": 34,
+    "ball_to_labelled_ankle_xy_m": 0.175,
+    "ball_rel_pelvis_m": [
+     0.103,
+     -0.285
+    ],
+    "ball_reachable": true
+   },
+   "fall": {
+    "step": 122,
+    "ref_frame": 123,
+    "labelled_onsets_before": 6,
+    "foot_touches_before": 1,
+    "ball_pelvis_dist_m": 2.522,
+    "pelvis_speed_err_mps": 0.456,
+    "foot_pressing_ball_last_0p5s": false,
+    "cause": "ball_out_of_reach"
+   },
+   "category": "C_first_touch_ball_out_of_reach",
+   "ended_by_fall_or_tracking": true
+  }
+ ]
+}

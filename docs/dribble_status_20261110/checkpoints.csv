@@ -1,0 +1,64 @@
+path,experiment,run,num_checkpoints,first_iter,last_iter,task,stage,task_source
+logs/rsl_rl/g1_dribbling/2026-08-04_15-31-32_s1,g1_dribbling,2026-08-04_15-31-32_s1,1,11000,11000,未记录,旧/早期 Stage 1(run 名推断),run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-05_19-42-14_resumed,g1_dribbling,2026-08-05_19-42-14_resumed,7,11000,17000,未记录,,run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-06_03-58-55_resumed,g1_dribbling,2026-08-06_03-58-55_resumed,8,11000,18000,未记录,,run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-06_14-24-41_s2_510,g1_dribbling,2026-08-06_14-24-41_s2_510,9,11000,19000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-07_05-05-11_s2_512,g1_dribbling,2026-08-07_05-05-11_s2_512,7,11000,17000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-12_21-07-32_s2_manager_init_check,g1_dribbling,2026-08-12_21-07-32_s2_manager_init_check,1,0,0,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-12_21-08-02_s2_aligned_side_sequence_smoke,g1_dribbling,2026-08-12_21-08-02_s2_aligned_side_sequence_smoke,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-12_21-09-01_s2_aligned_side_sequence_smoke_v2,g1_dribbling,2026-08-12_21-09-01_s2_aligned_side_sequence_smoke_v2,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-12_22-10-28_reward_logic_initcheck,g1_dribbling,2026-08-12_22-10-28_reward_logic_initcheck,1,0,0,未记录,,run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_09-43-20_s2_foot_local_anchor_continue,g1_dribbling,2026-08-13_09-43-20_s2_foot_local_anchor_continue,2,14000,15000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_11-23-37_s2_local_next_anchor_gate08,g1_dribbling,2026-08-13_11-23-37_s2_local_next_anchor_gate08,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_14-19-40_s2_pair_curriculum,g1_dribbling,2026-08-13_14-19-40_s2_pair_curriculum,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_17-41-39_s2_clean_pair_lookahead2,g1_dribbling,2026-08-13_17-41-39_s2_clean_pair_lookahead2,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_19-06-02_s2_clean_pair_lookahead2_repeat,g1_dribbling,2026-08-13_19-06-02_s2_clean_pair_lookahead2_repeat,7,11000,17000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_22-09-42_s2_gate08_legacy_repro,g1_dribbling,2026-08-13_22-09-42_s2_gate08_legacy_repro,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-13_23-02-26_s2_gate08_exact_logic_new_reference,g1_dribbling,2026-08-13_23-02-26_s2_gate08_exact_logic_new_reference,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-14_00-05-32_s2_gate08_force_repro,g1_dribbling,2026-08-14_00-05-32_s2_gate08_force_repro,3,11000,13000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-14_14-21-21_s2_no_surface_no_proximity_1k,g1_dribbling,2026-08-14_14-21-21_s2_no_surface_no_proximity_1k,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-14_23-33-42_s2_uniform_release_no_surface_no_proximity_1k,g1_dribbling,2026-08-14_23-33-42_s2_uniform_release_no_surface_no_proximity_1k,4,11000,14000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-15_20-54-40_s2_stage1_release_v2_position_only_1k,g1_dribbling,2026-08-15_20-54-40_s2_stage1_release_v2_position_only_1k,3,11000,13000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-16_01-13-59_s2_clean_transition_gate08,g1_dribbling,2026-08-16_01-13-59_s2_clean_transition_gate08,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-16_01-53-39_s2_segment_contact_clean_1k,g1_dribbling,2026-08-16_01-53-39_s2_segment_contact_clean_1k,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-16_02-27-32_s2_no_manual_contact_gate_1k,g1_dribbling,2026-08-16_02-27-32_s2_no_manual_contact_gate_1k,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-16_02-56-02_s2_full_foot_tracking_tol2_1k,g1_dribbling,2026-08-16_02-56-02_s2_full_foot_tracking_tol2_1k,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-16_03-06-17_s2_o1_local_anchor_full_tracking_tol2_1k,g1_dribbling,2026-08-16_03-06-17_s2_o1_local_anchor_full_tracking_tol2_1k,2,11000,11999,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-17_03-24-34_t2_o2_i3_region_v3_256,g1_dribbling,2026-08-17_03-24-34_t2_o2_i3_region_v3_256,1,13000,13000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-17_03-28-32_s2_c2_then_t2_region_v3_256,g1_dribbling,2026-08-17_03-28-32_s2_c2_then_t2_region_v3_256,6,11000,15999,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-17_14-44-50_s2_c2_qualified_o2_then_t2_v3_256,g1_dribbling,2026-08-17_14-44-50_s2_c2_qualified_o2_then_t2_v3_256,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-18_12-21-31_s2_outside_xplus2_yin1_256,g1_dribbling,2026-08-18_12-21-31_s2_outside_xplus2_yin1_256,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-18_12-21-53_s2_outside_xplus2_yin1_256,g1_dribbling,2026-08-18_12-21-53_s2_outside_xplus2_yin1_256,2,11000,12000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-18_15-10-03_s2_clean_euclidean_progress_1k,g1_dribbling,2026-08-18_15-10-03_s2_clean_euclidean_progress_1k,1,11000,11000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_03-32-41_s1_flat_reference_twist_clean,g1_dribbling,2026-08-19_03-32-41_s1_flat_reference_twist_clean,1,0,0,未记录,旧/早期 Stage 1(run 名推断),run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_03-33-34_s1_flat_reference_twist_clean,g1_dribbling,2026-08-19_03-33-34_s1_flat_reference_twist_clean,13,0,11999,未记录,旧/早期 Stage 1(run 名推断),run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_12-12-46_s2_flat_reference_twist_c2_clean,g1_dribbling,2026-08-19_12-12-46_s2_flat_reference_twist_c2_clean,2,12000,12500,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_13-02-03_s2_flat_reference_twist_c2_probe500,g1_dribbling,2026-08-19_13-02-03_s2_flat_reference_twist_c2_probe500,2,12000,12498,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_14-02-41_s2_flat_c2_sparse_aligned_probe_1k,g1_dribbling,2026-08-19_14-02-41_s2_flat_c2_sparse_aligned_probe_1k,2,12000,12500,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_14-49-41_s2_flat_c2_ordered_physical_no_deadband_1k,g1_dribbling,2026-08-19_14-49-41_s2_flat_c2_ordered_physical_no_deadband_1k,2,12000,12500,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_15-08-44_s2_flat_c2_next_contact_effective15_1k,g1_dribbling,2026-08-19_15-08-44_s2_flat_c2_next_contact_effective15_1k,3,12000,13000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_15-32-20_s2_flat_c2_candidate20_effective15_1k,g1_dribbling,2026-08-19_15-32-20_s2_flat_c2_candidate20_effective15_1k,3,12000,13000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-19_16-38-57_s2_flat_c2_to_c3_from_s1_candidate20_effective15_1k,g1_dribbling,2026-08-19_16-38-57_s2_flat_c2_to_c3_from_s1_candidate20_effective15_1k,3,12000,13000,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-20_02-35-15_s2_flat_c2_to_c3_from_s1_candidate20_effective15_restore_1k,g1_dribbling,2026-08-20_02-35-15_s2_flat_c2_to_c3_from_s1_candidate20_effective15_restore_1k,4,12000,13500,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-20_11-36-02_s2_flat_o2i3_progress_from_l0_candidate20_512,g1_dribbling,2026-08-20_11-36-02_s2_flat_o2i3_progress_from_l0_candidate20_512,11,12000,16998,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-20_17-00-04_s2_l1_ab_control_from16000_512,g1_dribbling,2026-08-20_17-00-04_s2_l1_ab_control_from16000_512,3,16000,16999,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-20_19-06-08_s2_l1_delayed_settlement_from16000_512,g1_dribbling,2026-08-20_19-06-08_s2_l1_delayed_settlement_from16000_512,3,16000,16999,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-20_19-54-21_s2_l1_delayed_settlement_dtfix_from16000_512,g1_dribbling,2026-08-20_19-54-21_s2_l1_delayed_settlement_dtfix_from16000_512,3,16000,16999,未记录,"旧 Stage 2(8 月,已废弃路线;run 名推断)",run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-21_03-00-02_clean_v0_stage1,g1_dribbling,2026-08-21_03-00-02_clean_v0_stage1,2,0,500,未记录,旧/早期 Stage 1(run 名推断),run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-21_03-22-19_clean_v0_stage1,g1_dribbling,2026-08-21_03-22-19_clean_v0_stage1,25,0,11999,未记录,旧/早期 Stage 1(run 名推断),run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-21_12-17-55_cleanv0_stage1_fullpelvis_flatreset_1024,g1_dribbling,2026-08-21_12-17-55_cleanv0_stage1_fullpelvis_flatreset_1024,6,0,2500,未记录,旧/早期 Stage 1(run 名推断),run 名推断
+logs/rsl_rl/g1_dribbling/2026-08-21_13-03-02_s1_clean_v0_local_twist_1024,g1_dribbling,2026-08-21_13-03-02_s1_clean_v0_local_twist_1024,14,0,6500,Tracking-Flat-G1-CleanV0-Stage1-RNN(前版),"clean-v0 Stage 1 前版,已被替换",handoff
+logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024,g1_dribbling,2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024,15,0,6999,Tracking-Flat-G1-CleanV0-Stage1-RNN,"clean-v0 Stage 1(幽灵球,仅 Reference 1;HANDOFF §2)",recorded
+logs/rsl_rl/g1_dribbling/2026-10-14_15-18-31_d1_smoke_ref1,g1_dribbling,2026-10-14_15-18-31_d1_smoke_ref1,2,7000,7008,Tracking-Flat-G1-CleanV0-Stage2-C2-RNN,D1 冒烟(10 轮),recorded
+logs/rsl_rl/g1_dribbling/2026-10-14_15-19-17_d1_c2_ref1_512,g1_dribbling,2026-10-14_15-19-17_d1_c2_ref1_512,2,7000,7500,Tracking-Flat-G1-CleanV0-Stage2-C2-RNN,D1 C2 探针(Reference 1),recorded
+logs/rsl_rl/g1_dribbling/2026-10-14_18-22-53_v1_smoke,g1_dribbling,2026-10-14_18-22-53_v1_smoke,2,7000,7008,Tracking-Flat-G1-CleanV1-BallTrack-RNN,V1-a 冒烟,recorded
+logs/rsl_rl/g1_dribbling/2026-10-14_18-23-26_v1_ballpelvis_ref1_512,g1_dribbling,2026-10-14_18-23-26_v1_ballpelvis_ref1_512,2,7000,7500,Tracking-Flat-G1-CleanV1-BallTrack-RNN,V1-a 骨盆系球位置跟踪,recorded
+logs/rsl_rl/g1_dribbling/2026-10-15_15-25-08_v1_exp_ref1_300,g1_dribbling,2026-10-15_15-25-08_v1_exp_ref1_300,2,7000,7298,Tracking-Flat-G1-CleanV1-BallTrack-RNN,"V1-a(exp 版,300 轮,取巧)",recorded
+logs/rsl_rl/g1_dribbling/2026-10-16_19-17-06_da_smoke,g1_dribbling,2026-10-16_19-17-06_da_smoke,2,0,4,Tracking-Flat-G1-LatentDribble-Da,D-a 冒烟,recorded
+logs/rsl_rl/g1_dribbling/2026-10-16_19-17-24_da_smoke_resume,g1_dribbling,2026-10-16_19-17-24_da_smoke_resume,1,5,5,Tracking-Flat-G1-LatentDribble-Da,D-a 冒烟(恢复),recorded
+logs/rsl_rl/g1_dribbling/2026-10-16_19-19-53_db_timing,g1_dribbling,2026-10-16_19-19-53_db_timing,2,0,2,Tracking-Flat-G1-LatentDribble-Db,D-b 计时,recorded
+logs/rsl_rl/g1_dribbling/2026-10-16_19-20-34_db_stage1prime_2048,g1_dribbling,2026-10-16_19-20-34_db_stage1prime_2048,6,0,2500,Tracking-Flat-G1-LatentDribble-Db,"D-b 第 1 次(潜变量 Stage 1′,后验坍缩)",recorded
+logs/rsl_rl/g1_dribbling/2026-10-19_11-53-59_db_stage1prime_2048_freebits,g1_dribbling,2026-10-19_11-53-59_db_stage1prime_2048_freebits,3,0,1000,Tracking-Flat-G1-LatentDribble-Db,"D-b 第 2 次(free bits,未过门槛)",recorded
+logs/rsl_rl/g1_dribbling/2026-10-19_12-53-38_teacher_smoke,g1_dribbling,2026-10-19_12-53-38_teacher_smoke,2,7000,7001,Tracking-Flat-G1-LatentDribble-Teacher,老师冒烟,recorded
+logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048,g1_dribbling,2026-10-19_12-53-51_teacher_mix_2048,9,7000,10998,Tracking-Flat-G1-LatentDribble-Teacher,"老师(非潜变量跟踪器,宽幽灵球,盘带+站立+行走)",recorded
+logs/rsl_rl/g1_dribbling/2026-10-21_02-44-14_balldribble_ref1_2048,g1_dribbling,2026-10-21_02-44-14_balldribble_ref1_2048,2,11000,11500,Tracking-Flat-G1-BallDribble,"最小 Stage 2 第 1 次(原地踏步,已停)",recorded

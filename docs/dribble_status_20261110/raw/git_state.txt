@@ -1,0 +1,33 @@
+# git status --short
+?? motions/amass_walk_stand_g1_v1/
+?? motions/latent_da_mix/
+?? motions/latent_db_mix/
+?? motions/s830_amass_stand_ready_npz/
+?? motions/s861_amass_walk_npz/
+
+# git diff --stat
+
+# branch / HEAD
+dribble-clean-v0
+775f7d30d6227303f55191b13a3396dfe17ac4db Capability evaluation tooling (rollout logger, offline analysis, contact cross-check); ball contact from all physics substeps; path-drift metric
+
+# local commits not in upstream/dribble-clean-v0 (as of the last fetch)
+775f7d3 Capability evaluation tooling (rollout logger, offline analysis, contact cross-check); ball contact from all physics substeps; path-drift metric
+1fdc950 Ball dribble Ref1 run 1: policy marches in place to avoid ball-lost termination (stopped)
+bd88262 Minimal Stage 2 on Reference 1: real ball on the clean-v0 Stage-1 tracker, per-link ball contact, baseline
+f70484f Teacher (non-latent) tracker finished: 0% failures on both dribble refs, <5% on stand/walk
+ab64134 Teacher task for Stage 1' distillation: clean-v0 Stage 1 tracker on the dribble/stand/walk mix with the wide ghost ball
+54357e6 D-b run 2 (free bits + KL warm-up) failed the iteration-1000 gate; request teacher + distillation for Stage 1'
+7def3d2 D-b run 1 posterior collapse (stopped); LatentPPO free-bits KL with warm-up and ramp; tests
+8df1fd8 D-b: acceptance eval script (posterior/prior, failures) and clean-v0 Stage 1 baseline on Reference 1
+64d32fc D-b setup: wide ghost ball (body-still / world-still / random modes), Stage 1' formal task and runner
+375c0bc D-a smoke passed: latent runner (LatentPPO via scoped PPO alias), train/save/resume verified
+56bb2fa D-a step 3: PPO wrapper for the shared latent net (LatentActorCritic + LatentPPO with KL), runner cfg, synthetic acceptance test
+3e70533 Dribble soft phase: reach 0.18 m + re-arm + no miss rule via env-side input gating (shared SoftPhase unchanged); 24/24 touches phased correctly
+18616b6 D-a step 2: interface-v1 observation groups (134 student / 177 ref) for the dribble line; soft-phase interface request
+26cbf7e Take shared interface-v1 modules, tests and plan docs from upstream/skill-interface-v1 (unmodified, version 1.0-draft-20261016)
+7f34218 Validate AMASS stand/walk retargeting on G1 (FK, limits, joint speed, foot skate); dedupe + ground into amass_walk_stand_g1_v1
+d20ed4d Looped dribble clips, per-cycle re-anchoring check, cross-reset smoke test; Stage1 only covers Reference 1
+df0fed5 Isaac smoke test of cycle velocity-follow reward glue (probe --cycle_reward_len)
+1fe722a Stateful cycle-averaged velocity-follow reward with tests; D3 acceptance script with synthetic check
+b531234 Ball resistance: stop below 0.05 m/s and grounded-only; cycle-averaged velocity-follow ceiling over full contact-surface cycle

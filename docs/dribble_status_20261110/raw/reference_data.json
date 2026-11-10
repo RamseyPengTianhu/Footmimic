@@ -1,0 +1,450 @@
+{
+ "Reference 1": {
+  "path": "motions/master-aligned/master_001675_001884_unitree_g1.npz",
+  "frames": 331,
+  "fps": 50,
+  "duration_s": 6.62,
+  "pelvis_speed_mean": 1.2452094554901123,
+  "pelvis_speed_first1s": 0.4816276431083679,
+  "pelvis_speed_after1s": 1.3815633058547974,
+  "net_disp_m": 7.022414207458496,
+  "ball_z_unique": [
+   0.10999999940395355
+  ],
+  "ball_velocity_change_frames": [
+   35,
+   47,
+   67,
+   85,
+   107,
+   123,
+   145,
+   163,
+   185,
+   202,
+   225,
+   240,
+   263,
+   278,
+   303
+  ],
+  "contact_onsets": [
+   35,
+   47,
+   67,
+   85,
+   107,
+   123,
+   145,
+   163,
+   185,
+   202,
+   225,
+   240,
+   263,
+   278,
+   303,
+   325
+  ],
+  "events": [
+   {
+    "frame": 35,
+    "end": 40,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.157,
+    "ball_ankle_xy_m": 0.155,
+    "ankle_z_m": 0.087,
+    "ball_speed_after_mps": 1.115,
+    "ball_dir_after_deg_pelvis": -57.8,
+    "ball_rel_pelvis_at_onset_m": [
+     0.103,
+     -0.238
+    ]
+   },
+   {
+    "frame": 47,
+    "end": 51,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.165,
+    "ball_ankle_xy_m": 0.162,
+    "ankle_z_m": 0.138,
+    "ball_speed_after_mps": 1.038,
+    "ball_dir_after_deg_pelvis": 2.5,
+    "ball_rel_pelvis_at_onset_m": [
+     0.171,
+     -0.343
+    ]
+   },
+   {
+    "frame": 67,
+    "end": 72,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.166,
+    "ball_ankle_xy_m": 0.165,
+    "ankle_z_m": 0.131,
+    "ball_speed_after_mps": 0.981,
+    "ball_dir_after_deg_pelvis": 31.0,
+    "ball_rel_pelvis_at_onset_m": [
+     0.182,
+     -0.221
+    ]
+   },
+   {
+    "frame": 85,
+    "end": 88,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.161,
+    "ball_ankle_xy_m": 0.16,
+    "ankle_z_m": 0.124,
+    "ball_speed_after_mps": 1.303,
+    "ball_dir_after_deg_pelvis": 17.1,
+    "ball_rel_pelvis_at_onset_m": [
+     0.099,
+     -0.158
+    ]
+   },
+   {
+    "frame": 107,
+    "end": 112,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.148,
+    "ball_ankle_xy_m": 0.147,
+    "ankle_z_m": 0.13,
+    "ball_speed_after_mps": 1.376,
+    "ball_dir_after_deg_pelvis": -32.9,
+    "ball_rel_pelvis_at_onset_m": [
+     0.144,
+     -0.176
+    ]
+   },
+   {
+    "frame": 123,
+    "end": 128,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.166,
+    "ball_ankle_xy_m": 0.165,
+    "ankle_z_m": 0.129,
+    "ball_speed_after_mps": 1.784,
+    "ball_dir_after_deg_pelvis": -9.8,
+    "ball_rel_pelvis_at_onset_m": [
+     0.197,
+     -0.351
+    ]
+   },
+   {
+    "frame": 145,
+    "end": 150,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.171,
+    "ball_ankle_xy_m": 0.169,
+    "ankle_z_m": 0.09,
+    "ball_speed_after_mps": 1.129,
+    "ball_dir_after_deg_pelvis": 48.3,
+    "ball_rel_pelvis_at_onset_m": [
+     0.237,
+     -0.271
+    ]
+   },
+   {
+    "frame": 163,
+    "end": 168,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.17,
+    "ball_ankle_xy_m": 0.167,
+    "ankle_z_m": 0.145,
+    "ball_speed_after_mps": 1.37,
+    "ball_dir_after_deg_pelvis": 3.1,
+    "ball_rel_pelvis_at_onset_m": [
+     0.147,
+     -0.095
+    ]
+   },
+   {
+    "frame": 185,
+    "end": 190,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.152,
+    "ball_ankle_xy_m": 0.151,
+    "ankle_z_m": 0.129,
+    "ball_speed_after_mps": 1.28,
+    "ball_dir_after_deg_pelvis": -33.6,
+    "ball_rel_pelvis_at_onset_m": [
+     0.206,
+     -0.103
+    ]
+   },
+   {
+    "frame": 202,
+    "end": 207,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.166,
+    "ball_ankle_xy_m": 0.166,
+    "ankle_z_m": 0.108,
+    "ball_speed_after_mps": 1.856,
+    "ball_dir_after_deg_pelvis": -16.0,
+    "ball_rel_pelvis_at_onset_m": [
+     0.182,
+     -0.334
+    ]
+   },
+   {
+    "frame": 225,
+    "end": 230,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.183,
+    "ball_ankle_xy_m": 0.173,
+    "ankle_z_m": 0.052,
+    "ball_speed_after_mps": 1.022,
+    "ball_dir_after_deg_pelvis": 19.3,
+    "ball_rel_pelvis_at_onset_m": [
+     0.235,
+     -0.249
+    ]
+   },
+   {
+    "frame": 240,
+    "end": 245,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.165,
+    "ball_ankle_xy_m": 0.163,
+    "ankle_z_m": 0.14,
+    "ball_speed_after_mps": 1.545,
+    "ball_dir_after_deg_pelvis": 20.1,
+    "ball_rel_pelvis_at_onset_m": [
+     0.174,
+     -0.22
+    ]
+   },
+   {
+    "frame": 263,
+    "end": 268,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.159,
+    "ball_ankle_xy_m": 0.157,
+    "ankle_z_m": 0.138,
+    "ball_speed_after_mps": 0.802,
+    "ball_dir_after_deg_pelvis": -11.1,
+    "ball_rel_pelvis_at_onset_m": [
+     0.249,
+     -0.098
+    ]
+   },
+   {
+    "frame": 278,
+    "end": 283,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.154,
+    "ball_ankle_xy_m": 0.154,
+    "ankle_z_m": 0.108,
+    "ball_speed_after_mps": 2.109,
+    "ball_dir_after_deg_pelvis": -27.9,
+    "ball_rel_pelvis_at_onset_m": [
+     0.119,
+     -0.211
+    ]
+   },
+   {
+    "frame": 303,
+    "end": 308,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.171,
+    "ball_ankle_xy_m": 0.166,
+    "ankle_z_m": 0.152,
+    "ball_speed_after_mps": 1.199,
+    "ball_dir_after_deg_pelvis": 40.6,
+    "ball_rel_pelvis_at_onset_m": [
+     0.234,
+     -0.334
+    ]
+   },
+   {
+    "frame": 325,
+    "end": 330,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.165,
+    "ball_ankle_xy_m": 0.165,
+    "ankle_z_m": 0.116,
+    "ball_speed_after_mps": 1.199,
+    "ball_dir_after_deg_pelvis": 8.6,
+    "ball_rel_pelvis_at_onset_m": [
+     0.135,
+     -0.117
+    ]
+   }
+  ],
+  "ball_static_before_first_contact": true,
+  "foot_ball_dist_label_present": true
+ },
+ "Reference 2": {
+  "path": "motions/master-annotated-003178-grounded/master_003178_003326_unitree_g1.npz",
+  "frames": 245,
+  "fps": 50,
+  "duration_s": 4.9,
+  "pelvis_speed_mean": 1.759134292602539,
+  "pelvis_speed_first1s": 1.316500186920166,
+  "pelvis_speed_after1s": 1.8732155561447144,
+  "net_disp_m": 7.910690784454346,
+  "ball_z_unique": [
+   0.10999999940395355
+  ],
+  "ball_velocity_change_frames": [
+   24,
+   52,
+   81,
+   110,
+   141,
+   172,
+   202
+  ],
+  "contact_onsets": [
+   24,
+   52,
+   81,
+   110,
+   141,
+   172,
+   202,
+   232
+  ],
+  "events": [
+   {
+    "frame": 24,
+    "end": 28,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.16,
+    "ball_ankle_xy_m": 0.16,
+    "ankle_z_m": 0.118,
+    "ball_speed_after_mps": 1.733,
+    "ball_dir_after_deg_pelvis": 13.4,
+    "ball_rel_pelvis_at_onset_m": [
+     0.149,
+     -0.284
+    ]
+   },
+   {
+    "frame": 52,
+    "end": 58,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.156,
+    "ball_ankle_xy_m": 0.154,
+    "ankle_z_m": 0.134,
+    "ball_speed_after_mps": 2.221,
+    "ball_dir_after_deg_pelvis": -31.3,
+    "ball_rel_pelvis_at_onset_m": [
+     0.284,
+     -0.132
+    ]
+   },
+   {
+    "frame": 81,
+    "end": 86,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.174,
+    "ball_ankle_xy_m": 0.169,
+    "ankle_z_m": 0.154,
+    "ball_speed_after_mps": 1.59,
+    "ball_dir_after_deg_pelvis": 30.6,
+    "ball_rel_pelvis_at_onset_m": [
+     0.268,
+     -0.338
+    ]
+   },
+   {
+    "frame": 110,
+    "end": 115,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.147,
+    "ball_ankle_xy_m": 0.144,
+    "ankle_z_m": 0.138,
+    "ball_speed_after_mps": 2.188,
+    "ball_dir_after_deg_pelvis": -21.0,
+    "ball_rel_pelvis_at_onset_m": [
+     0.104,
+     -0.155
+    ]
+   },
+   {
+    "frame": 141,
+    "end": 146,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.171,
+    "ball_ankle_xy_m": 0.169,
+    "ankle_z_m": 0.14,
+    "ball_speed_after_mps": 1.966,
+    "ball_dir_after_deg_pelvis": 36.7,
+    "ball_rel_pelvis_at_onset_m": [
+     0.234,
+     -0.26
+    ]
+   },
+   {
+    "frame": 172,
+    "end": 176,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.152,
+    "ball_ankle_xy_m": 0.15,
+    "ankle_z_m": 0.129,
+    "ball_speed_after_mps": 2.074,
+    "ball_dir_after_deg_pelvis": -37.5,
+    "ball_rel_pelvis_at_onset_m": [
+     0.227,
+     -0.092
+    ]
+   },
+   {
+    "frame": 202,
+    "end": 209,
+    "foot": "right",
+    "surface": "inside",
+    "ball_ankle_3d_m": 0.196,
+    "ball_ankle_xy_m": 0.152,
+    "ankle_z_m": 0.234,
+    "ball_speed_after_mps": 1.73,
+    "ball_dir_after_deg_pelvis": 43.2,
+    "ball_rel_pelvis_at_onset_m": [
+     0.171,
+     -0.393
+    ]
+   },
+   {
+    "frame": 232,
+    "end": 236,
+    "foot": "right",
+    "surface": "outside",
+    "ball_ankle_3d_m": 0.144,
+    "ball_ankle_xy_m": 0.144,
+    "ankle_z_m": 0.124,
+    "ball_speed_after_mps": 1.73,
+    "ball_dir_after_deg_pelvis": 46.1,
+    "ball_rel_pelvis_at_onset_m": [
+     0.054,
+     -0.086
+    ]
+   }
+  ],
+  "ball_static_before_first_contact": true,
+  "foot_ball_dist_label_present": true
+ }
+}

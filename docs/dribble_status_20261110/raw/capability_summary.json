@@ -1,0 +1,1719 @@
+[
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_ghost_follow.npz",
+  "condition": "ghost_follow",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0078125,
+  "ee_body_pos_rate": 0.0,
+  "finished_clip_rate": 0.9921875,
+  "duration_s": {
+   "mean": 6.581718750000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 1.72
+  },
+  "pelvis_speed": {
+   "mean": 1.1800856557674706,
+   "median": 1.1843636631965637,
+   "max": 1.3123992681503296,
+   "min": 0.7130016684532166
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2412951323203743,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 0.7441760897636414
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 0.0,
+  "ball_travel_m": {
+   "mean": 7.173738461919129,
+   "median": 7.213689565658569,
+   "max": 8.111401557922363,
+   "min": 0.42847883701324463
+  },
+  "path_drift_max": {
+   "mean": 2.2612424325197935,
+   "median": 2.2693406343460083,
+   "max": 3.6822543144226074,
+   "min": 0.912708044052124
+  },
+  "end_reasons": {
+   "anchor_pos_z": 1,
+   "motion_clip_end": 127
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_ghost_static.npz",
+  "condition": "ghost_static",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 1.0,
+  "finished_clip_rate": 0.0,
+  "duration_s": {
+   "mean": 2.7684375,
+   "median": 2.82,
+   "max": 4.08,
+   "min": 2.2600000000000002
+  },
+  "pelvis_speed": {
+   "mean": 1.0330112436786294,
+   "median": 1.0346975922584534,
+   "max": 1.1388417482376099,
+   "min": 0.7929889559745789
+  },
+  "ref_pelvis_speed": {
+   "mean": 0.9745274744927883,
+   "median": 0.9992823600769043,
+   "max": 1.1014763116836548,
+   "min": 0.8860238790512085
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 0.902977708959952,
+   "median": 0.8922217190265656,
+   "max": 1.602375864982605,
+   "min": 0.4896831810474396
+  },
+  "end_reasons": {
+   "ee_body_pos": 128
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_hold_ahead.npz",
+  "condition": "hold_ahead",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0,
+  "finished_clip_rate": 1.0,
+  "duration_s": {
+   "mean": 6.620000000000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 6.62
+  },
+  "pelvis_speed": {
+   "mean": 1.1905967630445957,
+   "median": 1.1866284012794495,
+   "max": 1.3531888723373413,
+   "min": 1.0588207244873047
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2452094554901123,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.2452094554901123
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 0.0,
+  "ball_travel_m": {
+   "mean": 7.2471971064805984,
+   "median": 7.2173991203308105,
+   "max": 8.349103927612305,
+   "min": 6.325883388519287
+  },
+  "path_drift_max": {
+   "mean": 2.3369917226955295,
+   "median": 2.2858914136886597,
+   "max": 3.9297430515289307,
+   "min": 1.4721282720565796
+  },
+  "end_reasons": {
+   "motion_clip_end": 128
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_offset0.05.npz",
+  "condition": "offset",
+  "offset": 0.05,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.8203125,
+   "median": 1.0,
+   "max": 4.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.8203125,
+   "median": 1.0,
+   "max": 4.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.03515625,
+  "nonfoot_touches_per_episode": 0.5625,
+  "nonfoot_touch_links": {
+   "right_knee_link": 69,
+   "left_knee_link": 3
+  },
+  "fall_rate": 0.0390625,
+  "ee_body_pos_rate": 0.9609375,
+  "finished_clip_rate": 0.0,
+  "duration_s": {
+   "mean": 2.9339062499999997,
+   "median": 2.83,
+   "max": 6.24,
+   "min": 1.48
+  },
+  "pelvis_speed": {
+   "mean": 0.9967607352882624,
+   "median": 1.0172460079193115,
+   "max": 1.189605951309204,
+   "min": 0.47550851106643677
+  },
+  "ref_pelvis_speed": {
+   "mean": 0.9832901083864272,
+   "median": 1.0021914839744568,
+   "max": 1.2414741516113281,
+   "min": 0.6531962752342224
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.0024011223576963,
+   "median": 1.007647693157196,
+   "max": 1.1723631620407104,
+   "min": 0.7114376425743103
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 0.9839625083055802,
+   "median": 0.9641577850280416,
+   "max": 1.2364718426131305,
+   "min": 0.5580331366925976
+  },
+  "ball_lost_rate": 0.9765625,
+  "ball_travel_m": {
+   "mean": 0.5486775085446425,
+   "median": 0.30521775782108307,
+   "max": 3.1055381298065186,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.0240048068808392,
+   "median": 0.977790892124176,
+   "max": 2.743556022644043,
+   "min": 0.2464628666639328
+  },
+  "end_reasons": {
+   "anchor_pos_z": 5,
+   "ee_body_pos": 123
+  },
+  "by_direction": {
+   "back": {
+    "episodes": 26,
+    "consecutive_mean": 0.34615384615384615,
+    "labelled_hit_fraction": 0.019230769230769232,
+    "fall_rate": 0.0
+   },
+   "front": {
+    "episodes": 41,
+    "consecutive_mean": 1.048780487804878,
+    "labelled_hit_fraction": 0.053353658536585365,
+    "fall_rate": 0.04878048780487805
+   },
+   "left": {
+    "episodes": 38,
+    "consecutive_mean": 1.2894736842105263,
+    "labelled_hit_fraction": 0.04276315789473684,
+    "fall_rate": 0.05263157894736842
+   },
+   "right": {
+    "episodes": 23,
+    "consecutive_mean": 0.17391304347826086,
+    "labelled_hit_fraction": 0.008152173913043478,
+    "fall_rate": 0.043478260869565216
+   }
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_offset0.1.npz",
+  "condition": "offset",
+  "offset": 0.1,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.0703125,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.0703125,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0390625,
+  "nonfoot_touches_per_episode": 0.59375,
+  "nonfoot_touch_links": {
+   "right_knee_link": 75,
+   "left_knee_link": 1
+  },
+  "fall_rate": 0.0703125,
+  "ee_body_pos_rate": 0.9296875,
+  "finished_clip_rate": 0.0,
+  "duration_s": {
+   "mean": 3.11265625,
+   "median": 2.9,
+   "max": 5.58,
+   "min": 1.02
+  },
+  "pelvis_speed": {
+   "mean": 0.9768939204514027,
+   "median": 1.0047615766525269,
+   "max": 1.3009618520736694,
+   "min": 0.40628141164779663
+  },
+  "ref_pelvis_speed": {
+   "mean": 0.9922671460080892,
+   "median": 1.0186219811439514,
+   "max": 1.2009652853012085,
+   "min": 0.481626957654953
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.0009333128109574,
+   "median": 1.0125178098678589,
+   "max": 1.2917753458023071,
+   "min": 0.4839928448200226
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 0.9745261203549718,
+   "median": 0.9716063312546872,
+   "max": 1.3744564373675996,
+   "min": 0.3237821105008494
+  },
+  "ball_lost_rate": 0.953125,
+  "ball_travel_m": {
+   "mean": 0.8017965955768886,
+   "median": 0.4730679988861084,
+   "max": 4.6639885902404785,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.1161630420247093,
+   "median": 1.0487056374549866,
+   "max": 2.4858508110046387,
+   "min": 0.20405441522598267
+  },
+  "end_reasons": {
+   "anchor_pos_z": 9,
+   "ee_body_pos": 119
+  },
+  "by_direction": {
+   "back": {
+    "episodes": 32,
+    "consecutive_mean": 0.53125,
+    "labelled_hit_fraction": 0.017578125,
+    "fall_rate": 0.03125
+   },
+   "front": {
+    "episodes": 35,
+    "consecutive_mean": 1.3428571428571427,
+    "labelled_hit_fraction": 0.05714285714285714,
+    "fall_rate": 0.02857142857142857
+   },
+   "left": {
+    "episodes": 34,
+    "consecutive_mean": 1.7941176470588236,
+    "labelled_hit_fraction": 0.05514705882352941,
+    "fall_rate": 0.14705882352941177
+   },
+   "right": {
+    "episodes": 27,
+    "consecutive_mean": 0.4444444444444444,
+    "labelled_hit_fraction": 0.020833333333333332,
+    "fall_rate": 0.07407407407407407
+   }
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_offset0.2.npz",
+  "condition": "offset",
+  "offset": 0.2,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.125,
+   "median": 1.0,
+   "max": 5.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.125,
+   "median": 1.0,
+   "max": 5.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0322265625,
+  "nonfoot_touches_per_episode": 0.6484375,
+  "nonfoot_touch_links": {
+   "right_knee_link": 74,
+   "left_knee_link": 9
+  },
+  "fall_rate": 0.0390625,
+  "ee_body_pos_rate": 0.921875,
+  "finished_clip_rate": 0.0390625,
+  "duration_s": {
+   "mean": 3.674375,
+   "median": 3.31,
+   "max": 6.62,
+   "min": 0.9
+  },
+  "pelvis_speed": {
+   "mean": 1.032196455867961,
+   "median": 1.040067434310913,
+   "max": 1.3818073272705078,
+   "min": 0.3731578290462494
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.0503660845570266,
+   "median": 1.0273659229278564,
+   "max": 1.2452094554901123,
+   "min": 0.4093811511993408
+  },
+  "ball_cmd_dev_step": {
+   "mean": 0.9913735566660762,
+   "median": 1.0013474225997925,
+   "max": 1.3076248168945312,
+   "min": 0.555795431137085
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 0.9240099652401752,
+   "median": 0.9413820394761797,
+   "max": 1.3152046818688234,
+   "min": 0.2876618360597104
+  },
+  "ball_lost_rate": 0.984375,
+  "ball_travel_m": {
+   "mean": 1.338995697638893,
+   "median": 0.8259484171867371,
+   "max": 9.238372802734375,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.3296499885618687,
+   "median": 1.1503546833992004,
+   "max": 6.124950408935547,
+   "min": 0.33616501092910767
+  },
+  "end_reasons": {
+   "anchor_pos_z": 5,
+   "ee_body_pos": 118,
+   "motion_clip_end": 5
+  },
+  "by_direction": {
+   "back": {
+    "episodes": 32,
+    "consecutive_mean": 0.59375,
+    "labelled_hit_fraction": 0.009765625,
+    "fall_rate": 0.03125
+   },
+   "front": {
+    "episodes": 39,
+    "consecutive_mean": 1.4102564102564104,
+    "labelled_hit_fraction": 0.06891025641025642,
+    "fall_rate": 0.02564102564102564
+   },
+   "left": {
+    "episodes": 28,
+    "consecutive_mean": 2.107142857142857,
+    "labelled_hit_fraction": 0.024553571428571428,
+    "fall_rate": 0.07142857142857142
+   },
+   "right": {
+    "episodes": 29,
+    "consecutive_mean": 0.3793103448275862,
+    "labelled_hit_fraction": 0.015086206896551725,
+    "fall_rate": 0.034482758620689655
+   }
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_real_no_resist.npz",
+  "condition": "real_no_resist",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.578125,
+   "median": 1.0,
+   "max": 2.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.578125,
+   "median": 1.0,
+   "max": 2.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0341796875,
+  "nonfoot_touches_per_episode": 0.265625,
+  "nonfoot_touch_links": {
+   "right_knee_link": 34
+  },
+  "fall_rate": 0.046875,
+  "ee_body_pos_rate": 0.953125,
+  "finished_clip_rate": 0.0,
+  "duration_s": {
+   "mean": 2.9645312500000003,
+   "median": 2.86,
+   "max": 6.54,
+   "min": 1.86
+  },
+  "pelvis_speed": {
+   "mean": 0.9891426754184067,
+   "median": 1.010914921760559,
+   "max": 1.228445291519165,
+   "min": 0.5111368894577026
+  },
+  "ref_pelvis_speed": {
+   "mean": 0.9892374332994223,
+   "median": 1.0104476809501648,
+   "max": 1.2417283058166504,
+   "min": 0.7797954678535461
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.0854360219091177,
+   "median": 1.02248215675354,
+   "max": 1.513597011566162,
+   "min": 0.690159022808075
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.0704735455316976,
+   "median": 1.0170616228505875,
+   "max": 1.4747469872314192,
+   "min": 0.5121268626366431
+  },
+  "ball_lost_rate": 0.9921875,
+  "ball_travel_m": {
+   "mean": 0.9567049567122012,
+   "median": 0.3413688689470291,
+   "max": 7.113391399383545,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.0015487980563194,
+   "median": 0.9578379988670349,
+   "max": 2.262707233428955,
+   "min": 0.41805341839790344
+  },
+  "end_reasons": {
+   "anchor_pos_z": 6,
+   "ee_body_pos": 122
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_real.npz",
+  "condition": "real",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.6953125,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.6953125,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.03271484375,
+  "nonfoot_touches_per_episode": 0.328125,
+  "nonfoot_touch_links": {
+   "right_knee_link": 42
+  },
+  "fall_rate": 0.046875,
+  "ee_body_pos_rate": 0.953125,
+  "finished_clip_rate": 0.0,
+  "duration_s": {
+   "mean": 2.91015625,
+   "median": 2.84,
+   "max": 5.42,
+   "min": 2.22
+  },
+  "pelvis_speed": {
+   "mean": 1.0099390670657158,
+   "median": 1.025950849056244,
+   "max": 1.160080075263977,
+   "min": 0.6791282296180725
+  },
+  "ref_pelvis_speed": {
+   "mean": 0.9837009920738637,
+   "median": 1.0051006078720093,
+   "max": 1.1986198425292969,
+   "min": 0.8827954530715942
+  },
+  "ball_cmd_dev_step": {
+   "mean": 0.9993049916811287,
+   "median": 1.0033574104309082,
+   "max": 1.176910400390625,
+   "min": 0.8736149668693542
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 0.9796491630654119,
+   "median": 0.960939582396181,
+   "max": 1.252134928583769,
+   "min": 0.7746444294439233
+  },
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 0.437031189652771,
+   "median": 0.04730400629341602,
+   "max": 2.8449807167053223,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 0.9818932730704546,
+   "median": 0.9359908401966095,
+   "max": 1.9778048992156982,
+   "min": 0.4708247184753418
+  },
+  "end_reasons": {
+   "anchor_pos_z": 6,
+   "ee_body_pos": 122
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/s1_ref1_reset_after_touch.npz",
+  "condition": "reset_after_touch",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-08-21_16-27-03_s1_clean_v0_random_bounded_ghost_1024/model_6999.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 2.4140625,
+   "median": 2.0,
+   "max": 14.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 2.4140625,
+   "median": 2.0,
+   "max": 14.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.1142578125,
+  "nonfoot_touches_per_episode": 2.25,
+  "nonfoot_touch_links": {
+   "right_knee_link": 282,
+   "left_knee_link": 6
+  },
+  "fall_rate": 0.0234375,
+  "ee_body_pos_rate": 0.9453125,
+  "finished_clip_rate": 0.03125,
+  "duration_s": {
+   "mean": 3.7134375000000004,
+   "median": 2.9299999999999997,
+   "max": 6.62,
+   "min": 2.16
+  },
+  "pelvis_speed": {
+   "mean": 1.0263818236999214,
+   "median": 1.0406272411346436,
+   "max": 1.4884127378463745,
+   "min": 0.5984395146369934
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.0503289634361863,
+   "median": 1.0192235708236694,
+   "max": 1.2488951683044434,
+   "min": 0.8685701489448547
+  },
+  "ball_cmd_dev_step": {
+   "mean": 0.8808384980075061,
+   "median": 0.9259963035583496,
+   "max": 1.1188209056854248,
+   "min": 0.516427218914032
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 0.7119280312410651,
+   "median": 0.8436490656912178,
+   "max": 1.0368411437548084,
+   "min": 0.14269010794670747
+  },
+  "ball_lost_rate": 0.8203125,
+  "ball_travel_m": {
+   "mean": 1.3791768004230107,
+   "median": 0.9971120655536652,
+   "max": 7.523407936096191,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.1620182116748765,
+   "median": 1.0450361371040344,
+   "max": 2.8703572750091553,
+   "min": 0.23994587361812592
+  },
+  "end_reasons": {
+   "anchor_pos_z": 3,
+   "ee_body_pos": 121,
+   "motion_clip_end": 4
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_ghost_follow.npz",
+  "condition": "ghost_follow",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0,
+  "finished_clip_rate": 1.0,
+  "duration_s": {
+   "mean": 6.620000000000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 6.62
+  },
+  "pelvis_speed": {
+   "mean": 1.1768274689093232,
+   "median": 1.1733474731445312,
+   "max": 1.360941767692566,
+   "min": 0.9706803560256958
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2452094554901123,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.2452094554901123
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 0.0,
+  "ball_travel_m": {
+   "mean": 7.255121506750584,
+   "median": 7.209420204162598,
+   "max": 8.609682083129883,
+   "min": 5.914772033691406
+  },
+  "path_drift_max": {
+   "mean": 2.0520323859527707,
+   "median": 2.031259298324585,
+   "max": 3.6279242038726807,
+   "min": 0.630095362663269
+  },
+  "end_reasons": {
+   "motion_clip_end": 128
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_ghost_static.npz",
+  "condition": "ghost_static",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0625,
+  "finished_clip_rate": 0.9375,
+  "duration_s": {
+   "mean": 6.6068750000000005,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 6.24
+  },
+  "pelvis_speed": {
+   "mean": 1.2098938254639506,
+   "median": 1.205683946609497,
+   "max": 1.4465562105178833,
+   "min": 1.0171791315078735
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2449364615604281,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.2389343976974487
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 2.133860187139362,
+   "median": 2.085152506828308,
+   "max": 3.7191264629364014,
+   "min": 0.6748637557029724
+  },
+  "end_reasons": {
+   "ee_body_pos": 8,
+   "motion_clip_end": 120
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_hold_ahead.npz",
+  "condition": "hold_ahead",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0,
+  "finished_clip_rate": 1.0,
+  "duration_s": {
+   "mean": 6.620000000000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 6.62
+  },
+  "pelvis_speed": {
+   "mean": 1.1682222341187298,
+   "median": 1.156992793083191,
+   "max": 1.3643884658813477,
+   "min": 0.9710918068885803
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2452094554901123,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.2452094554901123
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 0.0,
+  "ball_travel_m": {
+   "mean": 7.17522282153368,
+   "median": 7.117062568664551,
+   "max": 8.583733558654785,
+   "min": 5.810597896575928
+  },
+  "path_drift_max": {
+   "mean": 2.02814859431237,
+   "median": 1.9885884523391724,
+   "max": 3.3301877975463867,
+   "min": 0.28744566440582275
+  },
+  "end_reasons": {
+   "motion_clip_end": 128
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_offset0.05.npz",
+  "condition": "offset",
+  "offset": 0.05,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.2109375,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.2109375,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.048828125,
+  "nonfoot_touches_per_episode": 0.765625,
+  "nonfoot_touch_links": {
+   "right_knee_link": 96,
+   "left_knee_link": 2
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.03125,
+  "finished_clip_rate": 0.96875,
+  "duration_s": {
+   "mean": 6.600625000000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 5.1000000000000005
+  },
+  "pelvis_speed": {
+   "mean": 1.204402350820601,
+   "median": 1.207266926765442,
+   "max": 1.4508042335510254,
+   "min": 1.005244255065918
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.244502929970622,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.1691997051239014
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.23938133334741,
+   "median": 1.2428589463233948,
+   "max": 1.3597675561904907,
+   "min": 0.9388331770896912
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.219997601285609,
+   "median": 1.2323091062538838,
+   "max": 1.3537337532119154,
+   "min": 0.7776923836947787
+  },
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 1.0319343349474366,
+   "median": 0.7408352792263031,
+   "max": 9.919937133789062,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 2.0785822770558298,
+   "median": 1.9863295555114746,
+   "max": 4.009065628051758,
+   "min": 0.7298238277435303
+  },
+  "end_reasons": {
+   "ee_body_pos": 4,
+   "motion_clip_end": 124
+  },
+  "by_direction": {
+   "back": {
+    "episodes": 35,
+    "consecutive_mean": 0.8285714285714286,
+    "labelled_hit_fraction": 0.033928571428571426,
+    "fall_rate": 0.0
+   },
+   "front": {
+    "episodes": 30,
+    "consecutive_mean": 1.3666666666666667,
+    "labelled_hit_fraction": 0.05416666666666667,
+    "fall_rate": 0.0
+   },
+   "left": {
+    "episodes": 31,
+    "consecutive_mean": 1.6774193548387097,
+    "labelled_hit_fraction": 0.056451612903225805,
+    "fall_rate": 0.0
+   },
+   "right": {
+    "episodes": 32,
+    "consecutive_mean": 1.03125,
+    "labelled_hit_fraction": 0.052734375,
+    "fall_rate": 0.0
+   }
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_offset0.1.npz",
+  "condition": "offset",
+  "offset": 0.1,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.1875,
+   "median": 1.0,
+   "max": 4.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.1875,
+   "median": 1.0,
+   "max": 4.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.048828125,
+  "nonfoot_touches_per_episode": 0.734375,
+  "nonfoot_touch_links": {
+   "right_knee_link": 92,
+   "left_knee_link": 2
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.046875,
+  "finished_clip_rate": 0.953125,
+  "duration_s": {
+   "mean": 6.513906250000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 0.98
+  },
+  "pelvis_speed": {
+   "mean": 1.1891238023526967,
+   "median": 1.1953338980674744,
+   "max": 1.4108078479766846,
+   "min": 0.35614484548568726
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.234920681687072,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 0.4523255527019501
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.1996472491882741,
+   "median": 1.2416503429412842,
+   "max": 1.3240331411361694,
+   "min": 0.5012988448143005
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.1736436297853194,
+   "median": 1.2270692937719543,
+   "max": 1.3099907497725956,
+   "min": 0.6220012326724425
+  },
+  "ball_lost_rate": 0.9921875,
+  "ball_travel_m": {
+   "mean": 1.103228507694439,
+   "median": 0.8156081438064575,
+   "max": 5.287809371948242,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.9908059699228033,
+   "median": 2.043023467063904,
+   "max": 3.673664093017578,
+   "min": 0.13479243218898773
+  },
+  "end_reasons": {
+   "ee_body_pos": 6,
+   "motion_clip_end": 122
+  },
+  "by_direction": {
+   "back": {
+    "episodes": 29,
+    "consecutive_mean": 0.6551724137931034,
+    "labelled_hit_fraction": 0.034482758620689655,
+    "fall_rate": 0.0
+   },
+   "front": {
+    "episodes": 38,
+    "consecutive_mean": 1.5263157894736843,
+    "labelled_hit_fraction": 0.06743421052631579,
+    "fall_rate": 0.0
+   },
+   "left": {
+    "episodes": 28,
+    "consecutive_mean": 2.0,
+    "labelled_hit_fraction": 0.05803571428571429,
+    "fall_rate": 0.0
+   },
+   "right": {
+    "episodes": 33,
+    "consecutive_mean": 0.5757575757575758,
+    "labelled_hit_fraction": 0.032196969696969696,
+    "fall_rate": 0.0
+   }
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_offset0.2.npz",
+  "condition": "offset",
+  "offset": 0.2,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.265625,
+   "median": 1.0,
+   "max": 7.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.2734375,
+   "median": 1.0,
+   "max": 7.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.029296875,
+  "nonfoot_touches_per_episode": 0.9609375,
+  "nonfoot_touch_links": {
+   "right_knee_link": 102,
+   "left_knee_link": 21
+  },
+  "fall_rate": 0.0078125,
+  "ee_body_pos_rate": 0.078125,
+  "finished_clip_rate": 0.9140625,
+  "duration_s": {
+   "mean": 6.5014062500000005,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 0.32
+  },
+  "pelvis_speed": {
+   "mean": 1.1872320496477187,
+   "median": 1.186226487159729,
+   "max": 1.4196032285690308,
+   "min": 0.9993186593055725
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2345515416236594,
+   "median": 1.2452094554901123,
+   "max": 1.2482879161834717,
+   "min": 0.21814562380313873
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.215919021051377,
+   "median": 1.2416263818740845,
+   "max": 5.706681251525879,
+   "min": 0.8233528137207031
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.128098599702694,
+   "median": 1.2105495690954997,
+   "max": 1.3590645545136697,
+   "min": 0.6145151831568328
+  },
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 1.6175865599070676,
+   "median": 0.7328652143478394,
+   "max": 10.059830665588379,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 2.0217384910210967,
+   "median": 2.037214756011963,
+   "max": 3.783317804336548,
+   "min": 0.24656492471694946
+  },
+  "end_reasons": {
+   "anchor_ori": 1,
+   "ee_body_pos": 10,
+   "motion_clip_end": 117
+  },
+  "by_direction": {
+   "back": {
+    "episodes": 29,
+    "consecutive_mean": 0.5862068965517241,
+    "labelled_hit_fraction": 0.008620689655172414,
+    "fall_rate": 0.0
+   },
+   "front": {
+    "episodes": 27,
+    "consecutive_mean": 1.5185185185185186,
+    "labelled_hit_fraction": 0.06944444444444445,
+    "fall_rate": 0.0
+   },
+   "left": {
+    "episodes": 36,
+    "consecutive_mean": 2.4444444444444446,
+    "labelled_hit_fraction": 0.027777777777777776,
+    "fall_rate": 0.027777777777777776
+   },
+   "right": {
+    "episodes": 36,
+    "consecutive_mean": 0.4444444444444444,
+    "labelled_hit_fraction": 0.017361111111111112,
+    "fall_rate": 0.0
+   }
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_real_no_resist.npz",
+  "condition": "real_no_resist",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.984375,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.984375,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.046875,
+  "nonfoot_touches_per_episode": 1.0078125,
+  "nonfoot_touch_links": {
+   "right_knee_link": 126,
+   "left_knee_link": 3
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.125,
+  "finished_clip_rate": 0.875,
+  "duration_s": {
+   "mean": 6.5600000000000005,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 4.92
+  },
+  "pelvis_speed": {
+   "mean": 1.2195426933467388,
+   "median": 1.2106091380119324,
+   "max": 1.4370030164718628,
+   "min": 1.0091348886489868
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2437062514945865,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.161482572555542
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.3187382854521275,
+   "median": 1.2968183159828186,
+   "max": 1.852408528327942,
+   "min": 0.5974626541137695
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.3158727021831234,
+   "median": 1.2969048395893032,
+   "max": 1.884164340403971,
+   "min": 0.3790868454033782
+  },
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 4.406453420873731,
+   "median": 4.895887613296509,
+   "max": 9.441690444946289,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.9269052823074162,
+   "median": 1.9452371001243591,
+   "max": 3.232787609100342,
+   "min": 0.530510425567627
+  },
+  "end_reasons": {
+   "ee_body_pos": 16,
+   "motion_clip_end": 112
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_real.npz",
+  "condition": "real",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.0234375,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.0234375,
+   "median": 1.0,
+   "max": 3.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.05029296875,
+  "nonfoot_touches_per_episode": 1.0234375,
+  "nonfoot_touch_links": {
+   "right_knee_link": 130,
+   "left_knee_link": 1
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.046875,
+  "finished_clip_rate": 0.953125,
+  "duration_s": {
+   "mean": 6.591875000000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 5.08
+  },
+  "pelvis_speed": {
+   "mean": 1.2094284407794476,
+   "median": 1.2103501558303833,
+   "max": 1.3824268579483032,
+   "min": 0.9976284503936768
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2442661402747035,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 1.1674551963806152
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.2498737694695592,
+   "median": 1.2471774220466614,
+   "max": 1.4918341636657715,
+   "min": 1.0378342866897583
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.2344729595989241,
+   "median": 1.2345268562660614,
+   "max": 1.5273156951131204,
+   "min": 0.9405342466255502
+  },
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 0.9092153604142368,
+   "median": 0.8989434540271759,
+   "max": 3.1121437549591064,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.9846851755864918,
+   "median": 1.913503348827362,
+   "max": 3.7848682403564453,
+   "min": 0.7794190645217896
+  },
+  "end_reasons": {
+   "ee_body_pos": 6,
+   "motion_clip_end": 122
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref1_reset_after_touch.npz",
+  "condition": "reset_after_touch",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 3.9453125,
+   "median": 4.0,
+   "max": 16.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 3.9453125,
+   "median": 4.0,
+   "max": 16.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.20703125,
+  "nonfoot_touches_per_episode": 4.578125,
+  "nonfoot_touch_links": {
+   "right_knee_link": 579,
+   "left_knee_link": 7
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0703125,
+  "finished_clip_rate": 0.9296875,
+  "duration_s": {
+   "mean": 6.368437500000001,
+   "median": 6.62,
+   "max": 6.62,
+   "min": 2.22
+  },
+  "pelvis_speed": {
+   "mean": 1.1116314292885363,
+   "median": 1.1256113648414612,
+   "max": 1.4030649662017822,
+   "min": 0.6605374217033386
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.2261412451043725,
+   "median": 1.2452094554901123,
+   "max": 1.2452094554901123,
+   "min": 0.8827954530715942
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.0039708469994366,
+   "median": 1.0302888751029968,
+   "max": 1.3682212829589844,
+   "min": 0.5466856956481934
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 0.8287436840768277,
+   "median": 0.8593004432321052,
+   "max": 1.2810720244394007,
+   "min": 0.15698327229615955
+  },
+  "ball_lost_rate": 0.8828125,
+  "ball_travel_m": {
+   "mean": 2.339675416238606,
+   "median": 2.168538808822632,
+   "max": 6.2073845863342285,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.5362622083630413,
+   "median": 1.5076259970664978,
+   "max": 3.1676394939422607,
+   "min": 0.25176239013671875
+  },
+  "end_reasons": {
+   "ee_body_pos": 9,
+   "motion_clip_end": 119
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref2_ghost_follow.npz",
+  "condition": "ghost_follow",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.0,
+   "median": 0.0,
+   "max": 0.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.0,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0,
+  "finished_clip_rate": 1.0,
+  "duration_s": {
+   "mean": 4.9,
+   "median": 4.9,
+   "max": 4.9,
+   "min": 4.9
+  },
+  "pelvis_speed": {
+   "mean": 1.6792378686368465,
+   "median": 1.6805197596549988,
+   "max": 1.8884246349334717,
+   "min": 1.5167899131774902
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.7591344062238932,
+   "median": 1.7591344118118286,
+   "max": 1.7591344118118286,
+   "min": 1.75913405418396
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 0.0,
+  "ball_travel_m": {
+   "mean": 7.965603567659855,
+   "median": 7.975414037704468,
+   "max": 9.00330924987793,
+   "min": 7.1732378005981445
+  },
+  "path_drift_max": {
+   "mean": 1.7021280289627612,
+   "median": 1.6380926370620728,
+   "max": 3.711745023727417,
+   "min": 0.3164588212966919
+  },
+  "end_reasons": {
+   "motion_clip_end": 128
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref2_hold_ahead.npz",
+  "condition": "hold_ahead",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.53125,
+   "median": 0.0,
+   "max": 2.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.53125,
+   "median": 0.0,
+   "max": 2.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.06640625,
+  "nonfoot_touches_per_episode": 0.0,
+  "nonfoot_touch_links": {},
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0,
+  "finished_clip_rate": 1.0,
+  "duration_s": {
+   "mean": 4.9,
+   "median": 4.9,
+   "max": 4.9,
+   "min": 4.9
+  },
+  "pelvis_speed": {
+   "mean": 1.6613597245886922,
+   "median": 1.6719329357147217,
+   "max": 1.8353573083877563,
+   "min": 1.4549012184143066
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.7591344062238932,
+   "median": 1.7591344118118286,
+   "max": 1.7591344118118286,
+   "min": 1.75913405418396
+  },
+  "ball_cmd_dev_step": null,
+  "ball_cmd_dev_1s": null,
+  "ball_lost_rate": 0.0,
+  "ball_travel_m": {
+   "mean": 7.874063637107611,
+   "median": 7.902058362960815,
+   "max": 8.752904891967773,
+   "min": 6.818212985992432
+  },
+  "path_drift_max": {
+   "mean": 1.7776878410950303,
+   "median": 1.704425036907196,
+   "max": 3.8638253211975098,
+   "min": 0.5072373747825623
+  },
+  "end_reasons": {
+   "motion_clip_end": 128
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref2_real.npz",
+  "condition": "real",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 0.5859375,
+   "median": 1.0,
+   "max": 2.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 0.5859375,
+   "median": 1.0,
+   "max": 2.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.068359375,
+  "nonfoot_touches_per_episode": 0.0234375,
+  "nonfoot_touch_links": {
+   "right_knee_link": 3
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.0078125,
+  "finished_clip_rate": 0.9921875,
+  "duration_s": {
+   "mean": 4.872031250000001,
+   "median": 4.9,
+   "max": 4.9,
+   "min": 1.32
+  },
+  "pelvis_speed": {
+   "mean": 1.6629514773376286,
+   "median": 1.6757092475891113,
+   "max": 1.869400143623352,
+   "min": 0.6677799820899963
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.75690792594105,
+   "median": 1.7591344118118286,
+   "max": 1.7591344118118286,
+   "min": 1.4741449356079102
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.6775598237290978,
+   "median": 1.7122783064842224,
+   "max": 2.3239376544952393,
+   "min": 1.4080904722213745
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.687701652179162,
+   "median": 1.7397714557358028,
+   "max": 2.255575282677583,
+   "min": 1.2954273329185861
+  },
+  "ball_lost_rate": 1.0,
+  "ball_travel_m": {
+   "mean": 0.5042243984571542,
+   "median": 0.23198866844177246,
+   "max": 3.4364609718322754,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.4719983043614775,
+   "median": 1.4281399846076965,
+   "max": 2.694547653198242,
+   "min": 0.3729836046695709
+  },
+  "end_reasons": {
+   "ee_body_pos": 1,
+   "motion_clip_end": 127
+  }
+ },
+ {
+  "file": "logs/dribble_status_20261110/raw/teacher_ref2_reset_after_touch.npz",
+  "condition": "reset_after_touch",
+  "offset": 0.0,
+  "no_resist": false,
+  "checkpoint": "/home/teambruce/users/syf/projects/Footmimic/logs/rsl_rl/g1_dribbling/2026-10-19_12-53-51_teacher_mix_2048/model_10998.pt",
+  "episodes": 128,
+  "consecutive_touches": {
+   "mean": 1.4140625,
+   "median": 1.0,
+   "max": 6.0,
+   "min": 0.0
+  },
+  "foot_touches": {
+   "mean": 1.4140625,
+   "median": 1.0,
+   "max": 6.0,
+   "min": 0.0
+  },
+  "labelled_hit_fraction": 0.134765625,
+  "nonfoot_touches_per_episode": 1.15625,
+  "nonfoot_touch_links": {
+   "right_knee_link": 148
+  },
+  "fall_rate": 0.0,
+  "ee_body_pos_rate": 0.3984375,
+  "finished_clip_rate": 0.6015625,
+  "duration_s": {
+   "mean": 3.6951562499999997,
+   "median": 4.9,
+   "max": 4.9,
+   "min": 0.8
+  },
+  "pelvis_speed": {
+   "mean": 1.546136709395796,
+   "median": 1.6038965582847595,
+   "max": 1.863040566444397,
+   "min": 0.7367770671844482
+  },
+  "ref_pelvis_speed": {
+   "mean": 1.673767562955618,
+   "median": 1.7591344118118286,
+   "max": 1.7633196115493774,
+   "min": 1.1719377040863037
+  },
+  "ball_cmd_dev_step": {
+   "mean": 1.372094554360956,
+   "median": 1.4992228746414185,
+   "max": 1.7581206560134888,
+   "min": 0.8586838841438293
+  },
+  "ball_cmd_dev_1s": {
+   "mean": 1.2113205435110312,
+   "median": 1.5896962053165558,
+   "max": 1.7920124017803112,
+   "min": 0.23546118007426195
+  },
+  "ball_lost_rate": 0.6171875,
+  "ball_travel_m": {
+   "mean": 1.1908811677712947,
+   "median": 0.7094421684741974,
+   "max": 4.740335941314697,
+   "min": 0.0
+  },
+  "path_drift_max": {
+   "mean": 1.1503362890798599,
+   "median": 1.0853067636489868,
+   "max": 3.621211528778076,
+   "min": 0.16335493326187134
+  },
+  "end_reasons": {
+   "ee_body_pos": 51,
+   "motion_clip_end": 77
+  }
+ }
+]

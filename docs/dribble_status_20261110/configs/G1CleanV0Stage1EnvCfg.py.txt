@@ -1,0 +1,76 @@
+class G1CleanV0Stage1EnvCfg(G1FlatMotionPretrainReferenceTwistEnvCfg):
+    """Deployable clean Stage-1 prior for the v0 dribbling pipeline.
+
+    The actor sees the same current-ball channel that Stage 2 will use, but
+    the ball is a bounded, independent ghost object and no reward/termination
+    consumes it.  Destination is deliberately absent, so this task's actor
+    contract is 160-D (Flat 154 + ball xyz 3 + reference twist 3).
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # The Actor receives the reference command as pelvis-local
+        # ``[vx, vy, wz]``.  Supervise that exact deployable quantity instead
+        # of comparing linear velocity in the task/world frame, and give the
+        # third command component an explicit (conservative) yaw-rate term.
+        # Absolute root position/orientation remain disabled: Stage 1 learns
+        # the reference motion, not one fixed placement in the world.
+        self.rewards.motion_global_anchor_pos = None
+        self.rewards.motion_global_anchor_ori = None
+        # Their selected, pelvis-relative replacements below already cover
+        # pose and leg dynamics; do not keep dead global-body telemetry terms
+        # in the clean RewardManager.
+        self.rewards.motion_body_lin_vel = None
+        self.rewards.motion_body_ang_vel = None
+        self.rewards.motion_anchor_lin_vel = RewTerm(
+            func=mdp.motion_anchor_local_lin_vel_tracking_exp,
+            weight=2.2,
+            params={"command_name": "motion", "std": 1.0},
+        )
+        self.rewards.motion_anchor_ang_vel = RewTerm(
+            func=mdp.motion_anchor_local_ang_vel_tracking_exp,
+            weight=0.4,
+            params={"command_name": "motion", "std": 1.0},
+        )
+
+        # Keep the historical Flat reset noise and interval pushes. They are
+        # part of the motion-prior robustness distribution, not a ball-task
+        # signal, and retaining them keeps Stage 1 matched to the verified
+        # Tracking-Flat-G1-Motion-RNN-v0 recipe.
+        self.commands.motion.motion_clip_end_resample = True
+        self.commands.motion.motion_clip_end_terminate = True
+        self.commands.motion.motion_cyclic_blend_frames = 0
+        self.terminations.motion_clip_end = DoneTerm(
+            func=mdp.motion_clip_finished,
+            params={"command_name": "motion"},
+            time_out=True,
+        )
+
+        self.commands.motion.anchor_body_name = "pelvis"
+        self.commands.motion.soccer_ball_spawn_mode = "workspace"
+        self.commands.motion.soccer_ball_workspace_x_range = (0.25, 0.80)
+        self.commands.motion.soccer_ball_workspace_y_range = (-0.35, 0.35)
+        self.commands.motion.soccer_ball_follow_actual_pelvis_yaw = True
+        self.commands.motion.soccer_ball_generate_destination = False
+        self.commands.motion.target_destination_marker_cfg = None
+
+        # Use the real scene ball in the full pelvis frame.  This preserves
+        # the historical Flat body-frame semantics and maps directly from a
+        # deployable body-mounted ball measurement.
+        self.observations.policy.target_point_pos = ObsTerm(
+            func=mdp.ball_pos_pelvis_full,
+            params={"command_name": "motion"},
+        )
+        self.observations.critic.target_point_pos = ObsTerm(
+            func=mdp.ball_pos_pelvis_full,
+            params={"command_name": "motion"},
+        )
+        self.observations.policy.target_destination_pos_local = None
+        self.observations.critic.target_destination_pos_local = None
+
+        # Keep ball-ground visualization/state available for playback, but
+        # prevent robot-ball collision from changing the motion prior.
+        _apply_stage1_ghost_ball(self)
+
+
